@@ -450,6 +450,9 @@ h1, h2, h3, p {
   flex: 1;
   overflow: hidden;
   touch-action: none;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 #arVideo {
   position: absolute;
@@ -499,19 +502,26 @@ h1, h2, h3, p {
   text-align: center;
   padding: 0 40px;
 }
-.scan-reticle {
-  width: 74px;
-  height: 74px;
-  border: 3px solid #fff;
-  border-radius: 16px;
-  opacity: 0.9;
-  animation: pulseReticle 1.6s ease-in-out infinite;
+.scan-phone-track {
+  width: 220px;
+  height: 120px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow: visible;
 }
-@keyframes pulseReticle {
-  0%, 100% { transform: scale(1); opacity: 0.9; }
-  50% { transform: scale(1.08); opacity: 0.5; }
+.scan-phone {
+  width: 56px;
+  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.4));
+  animation: scanSweep 2.6s ease-in-out infinite;
+}
+@keyframes scanSweep {
+  0% { transform: translateX(-64px) rotate(-14deg); }
+  50% { transform: translateX(64px) rotate(14deg); }
+  100% { transform: translateX(-64px) rotate(-14deg); }
 }
 .ar-scan-hint p { font-weight: 600; }
+.ar-scan-hint .scan-subtext { font-weight: 500; font-size: 0.82rem; opacity: 0.85; margin-top: -8px; }
 
 .ar-gesture-hint {
   position: absolute;

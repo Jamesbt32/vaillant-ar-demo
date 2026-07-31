@@ -380,6 +380,16 @@ function pointAngle(a, b) {
   return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
 }
 
+// Safety net: on some browsers pointerdown-based placement can be swallowed
+// (e.g. iOS Safari text-selection/callout gestures). A plain click always
+// fires for a genuine tap, and placeObjectAt() is a no-op if already placed.
+arViewport.addEventListener("click", (e) => {
+  if (mvModeActive || objectPlaced) return;
+  if (e.target.closest("button, .ar-bottom, .ar-topbar, .db-readout")) return;
+  const rect = arViewport.getBoundingClientRect();
+  placeObjectAt(e.clientX - rect.left, e.clientY - rect.top);
+});
+
 arViewport.addEventListener("pointerdown", (e) => {
   if (mvModeActive) return; // model-viewer owns gestures for real 3D models
   if (e.target.closest("button, .ar-bottom, .ar-topbar, .db-readout")) return;
