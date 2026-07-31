@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Vaillant AR</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap"
+      rel="stylesheet"
+    />
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
+  </head>
+  <body>
+    <div class="app-frame" id="appFrame">
+
+      <!-- SPLASH -->
+      <section class="screen splash-screen active" data-screen="splash">
+        <div class="splash-bg"></div>
+        <div class="splash-content">
+          <img class="brand-logo" src="assets/vaillant-logo.png" alt="Vaillant" />
+          <h1 class="wordmark">Vaillant <span>AR</span></h1>
+          <ul class="feature-list">
+            <li>
+              <span class="feature-icon" data-icon="cube"></span>
+              <span>Place our heat pumps in Augmented Reality</span>
+            </li>
+            <li>
+              <span class="feature-icon" data-icon="ruler"></span>
+              <span>Show our heat pumps with real dimensions</span>
+            </li>
+            <li>
+              <span class="feature-icon" data-icon="ear"></span>
+              <span>Experience the sound of our heat pumps</span>
+            </li>
+            <li>
+              <span class="feature-icon" data-icon="play"></span>
+              <span>Watch videos that explain how heat pump technology works</span>
+            </li>
+          </ul>
+          <button class="cta-btn" id="splashContinue">Get started</button>
+        </div>
+      </section>
+
+      <!-- MENU -->
+      <section class="screen menu-screen" data-screen="menu">
+        <div class="menu-hero">
+          <div class="menu-hero-top">
+            <div class="brand-pill small"><span class="brand-mark">&#127968;</span>Vaillant</div>
+            <button class="icon-btn" id="settingsBtn" aria-label="Settings" data-icon="gear"></button>
+          </div>
+          <div class="carousel" id="carousel"></div>
+          <div class="carousel-dots" id="carouselDots"></div>
+          <p class="carousel-label" id="carouselLabel">aroCOLLECT</p>
+        </div>
+        <div class="topic-card">
+          <p class="eyebrow">Vaillant AR</p>
+          <h2>Choose your topic</h2>
+          <ul class="topic-list" id="topicList">
+            <li data-topic="products"><span>Our heat pumps</span><span class="chevron">&#8250;</span></li>
+            <li data-topic="functionalities"><span>Functionalities of a heat pump</span><span class="chevron">&#8250;</span></li>
+            <li data-topic="references"><span>References</span><span class="chevron">&#8250;</span></li>
+          </ul>
+        </div>
+      </section>
+
+      <!-- PRODUCT LIST -->
+      <section class="screen list-screen" data-screen="list">
+        <header class="bar">
+          <button class="icon-btn" data-back="menu" aria-label="Back" data-icon="back"></button>
+          <h2>Our heat pumps</h2>
+          <span class="bar-spacer"></span>
+        </header>
+        <div class="filters" id="filters"></div>
+        <div id="productsGrid" class="products-grid"></div>
+      </section>
+
+      <!-- TOPIC PLACEHOLDER (functionalities / references) -->
+      <section class="screen topic-screen" data-screen="topic">
+        <header class="bar">
+          <button class="icon-btn" data-back="menu" aria-label="Back" data-icon="back"></button>
+          <h2 id="topicTitle">Topic</h2>
+          <span class="bar-spacer"></span>
+        </header>
+        <div class="topic-body" id="topicBody"></div>
+      </section>
+
+      <!-- PRODUCT DETAIL -->
+      <section class="screen detail-screen" data-screen="detail">
+        <header class="bar transparent">
+          <button class="icon-btn light" data-back="list" aria-label="Back" data-icon="back"></button>
+          <h2 id="detailTitle">Product</h2>
+          <span class="bar-spacer"></span>
+        </header>
+        <div class="detail-stage">
+          <img id="detailImage" class="detail-image" src="" alt="" />
+          <div class="badge badge-a" id="detailBadgeA">High energy efficiency</div>
+          <div class="badge badge-b" id="detailBadgeB">Future proof</div>
+        </div>
+        <button class="cta-btn place-btn" id="placeProductBtn">
+          <span class="cube-icon" data-icon="cube"></span> Place product
+        </button>
+        <button class="more-details-btn" id="moreDetailsToggle">More details</button>
+        <div class="more-details-panel" id="moreDetailsPanel">
+          <p id="detailSummary" class="muted"></p>
+          <ul id="detailFeatures" class="detail-features"></ul>
+          <button class="secondary-btn full" id="openMcsFromDetail" style="display:none;">Check MCS 020 noise compliance</button>
+        </div>
+      </section>
+
+      <!-- AR VIEW -->
+      <section class="screen ar-screen" data-screen="ar">
+        <div class="ar-viewport" id="arViewport">
+          <video id="arVideo" playsinline autoplay muted></video>
+          <div class="ar-noVideo" id="arNoVideo">Camera unavailable — using a sample room backdrop.</div>
+          <canvas id="arCanvas"></canvas>
+          <div class="ar-object" id="arObject">
+            <img id="arObjectImage" src="" alt="" draggable="false" />
+          </div>
+          <div class="ar-scan-hint" id="arScanHint">
+            <span class="scan-reticle"></span>
+            <p>Move your smartphone to scan the surface</p>
+          </div>
+          <div class="ar-gesture-hint" id="arGestureHint"></div>
+
+          <model-viewer
+            id="mvViewer"
+            class="mv-viewer"
+            camera-controls
+            touch-action="pan-y"
+            ar
+            ar-modes="webxr scene-viewer quick-look"
+            ar-scale="fixed"
+            shadow-intensity="1"
+            exposure="1"
+          >
+            <button slot="ar-button" id="mvArButton" class="cta-btn mv-ar-btn">
+              <span class="cube-icon" data-icon="cube"></span> View in your space
+            </button>
+            <div class="mv-progress" slot="progress-bar" id="mvProgress"><div class="mv-progress-fill"></div></div>
+          </model-viewer>
+          <p class="mv-hint" id="mvHint">Drag to rotate &middot; pinch to zoom &middot; tap "View in your space" to place it in AR</p>
+
+          <header class="ar-topbar">
+            <button class="icon-btn light" id="arCloseBtn" data-icon="close" aria-label="Close"></button>
+            <div class="ar-title">
+              <span id="arProductName">aroTHERM plus</span>
+              <span class="brand-pill tiny"><span class="brand-mark">&#127968;</span>Vaillant</span>
+            </div>
+            <span class="bar-spacer"></span>
+          </header>
+
+          <div class="scale-badge" id="scaleBadge">100%</div>
+
+          <div class="db-readout" id="dbReadout">
+            <div class="db-value"><span id="dbNumber">--</span><span class="db-unit">dB</span></div>
+            <label class="silent-toggle">
+              Silent Mode
+              <input type="checkbox" id="silentModeToggle" />
+              <span class="switch"></span>
+            </label>
+            <p class="db-distance" id="dbDistance">Current distance: --</p>
+            <button class="secondary-btn small" id="openMcsFromAr">Check MCS 020 compliance</button>
+          </div>
+
+          <div class="ar-bottom">
+            <div class="variant-pills" id="variantPills"></div>
+            <div class="mount-pills" id="mountPills"></div>
+            <div class="ar-secondary-row">
+              <button class="view3d-btn" id="view3dToggle">View true 3D</button>
+            </div>
+            <div class="ar-fabs">
+              <button class="fab orange" id="soundFab" data-icon="ear" aria-label="Sound simulation"></button>
+              <button class="fab" id="captureFab" data-icon="camera" aria-label="Capture"></button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- SOUND SIMULATION MODAL -->
+      <div class="modal-backdrop" id="soundModal">
+        <div class="modal-card">
+          <p>Please disable the silent mode of your smartphone to experience the sound.</p>
+          <p class="muted">Adjust the volume to suit you. Use headphones for the best experience.</p>
+          <div class="volume-row">
+            <span data-icon="volLow"></span>
+            <input type="range" id="volumeSlider" min="0" max="100" value="60" />
+            <span data-icon="volHigh"></span>
+          </div>
+          <p class="disclaimer">This is a sound simulation and may differ from reality.</p>
+          <button class="cta-btn" id="confirmSoundBtn">Confirm</button>
+        </div>
+      </div>
+
+      <!-- MCS 020 MODAL -->
+      <div class="modal-backdrop" id="mcsModal">
+        <div class="modal-card mcs-card">
+          <div class="mcs-header">
+            <h3>MCS 020 noise check</h3>
+            <button class="icon-btn" id="mcsCloseBtn" data-icon="close" aria-label="Close"></button>
+          </div>
+          <p class="muted small">
+            Estimates the noise level at your nearest neighbour's window using the MCS Planning
+            Standards (MCS 020) hemispherical spreading method. Verify sound power level against the
+            official product datasheet before relying on this for a planning submission.
+          </p>
+
+          <label class="mcs-field">
+            <span>Sound power level L<sub>WA</sub> (dB(A))</span>
+            <input type="number" id="mcsLwa" min="0" step="0.5" />
+          </label>
+
+          <label class="mcs-field">
+            <span>Distance to nearest window / boundary (m)</span>
+            <input type="number" id="mcsDistance" min="0.1" step="0.1" />
+          </label>
+
+          <label class="mcs-field">
+            <span>Number of outdoor units</span>
+            <input type="number" id="mcsUnits" min="1" step="1" value="1" />
+          </label>
+
+          <label class="mcs-field">
+            <span>Mounting position</span>
+            <select id="mcsDirectivity">
+              <option value="2">Free-standing / against one surface (Q = 2)</option>
+              <option value="4">Corner-mounted, two reflecting surfaces (Q = 4)</option>
+            </select>
+          </label>
+
+          <label class="mcs-field">
+            <span>Permitted development limit (dB(A))</span>
+            <input type="number" id="mcsThreshold" min="1" step="0.5" value="42" />
+          </label>
+
+          <button class="cta-btn" id="mcsCalculateBtn">Calculate</button>
+
+          <div class="mcs-result" id="mcsResult">
+            <div class="mcs-result-value">
+              <span id="mcsPredicted">--</span> <span class="db-unit">dB(A)</span> predicted at receptor
+            </div>
+            <div class="mcs-pass-badge" id="mcsPassBadge">--</div>
+            <p class="mcs-note" id="mcsNote"></p>
+          </div>
+        </div>
+      </div>
+
+      <div class="toast" id="toast"></div>
+    </div>
+
+    <script src="app.js"></script>
+  </body>
+</html>
