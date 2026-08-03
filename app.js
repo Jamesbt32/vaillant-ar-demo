@@ -304,8 +304,23 @@ $("#placeProductBtn").addEventListener("click", () => {
  * -------------------------------------------------------------------*/
 const arViewport = $("#arViewport");
 const mvViewer = $("#mvViewer");
+const mvArHint = $("#mvArHint");
 const dbReadout = $("#dbReadout");
 const distanceSlider = $("#distanceSlider");
+
+// Model-viewer gives no on-screen guidance of its own during a live AR
+// session, so surface our own instruction through the same dom-overlay
+// its ar-button uses, toggled by the real session state.
+mvViewer.addEventListener("ar-status", (e) => {
+  if (e.detail.status === "session-started") {
+    mvArHint.classList.add("show");
+  } else {
+    mvArHint.classList.remove("show");
+  }
+  if (e.detail.status === "failed") {
+    showToast("AR couldn't start on this device - try the 3D view instead");
+  }
+});
 
 function currentVariantHeightMm() {
   const product = state.activeProduct;
