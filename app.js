@@ -304,6 +304,8 @@ const dbReadout = $("#dbReadout");
 const scanDots = $("#scanDots");
 const arReticleWrap = $("#arReticleWrap");
 const placeDropBtn = $("#placeDropBtn");
+const distanceRow = $("#distanceRow");
+const distanceSlider = $("#distanceSlider");
 
 let mediaStream = null;
 let objectPlaced = false;
@@ -355,9 +357,11 @@ function resetGestureState() {
   objX = 0;
   objY = 0;
   objScale = 1;
-  arObject.classList.remove("placed", "dropping");
+  arObject.classList.remove("placed", "dropping", "floating");
   arReticleWrap.classList.remove("show");
   placeDropBtn.classList.remove("show");
+  distanceRow.classList.remove("show");
+  distanceSlider.value = 100;
   scanDots.innerHTML = "";
 }
 
@@ -420,8 +424,17 @@ function dropObjectAtFloor() {
   dropObjectAtFloor._t = setTimeout(() => {
     arObject.classList.remove("dropping");
     objectPlaced = true; // fixed in place: no drag, no pinch-to-scale from here
+    distanceSlider.value = 100;
+    distanceRow.classList.add("show");
   }, 550);
 }
+
+distanceSlider.addEventListener("input", () => {
+  objScale = Number(distanceSlider.value) / 100;
+  applyObjectTransform();
+  showScaleBadge();
+  updateDbReadoutIfVisible();
+});
 
 placeDropBtn.addEventListener("click", dropObjectAtFloor);
 

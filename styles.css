@@ -623,7 +623,8 @@ h1, h2, h3, p {
 .ar-viewport.mv-mode #arScanHint,
 .ar-viewport.mv-mode #scanDots,
 .ar-viewport.mv-mode #arReticleWrap,
-.ar-viewport.mv-mode #placeDropBtn {
+.ar-viewport.mv-mode #placeDropBtn,
+.ar-viewport.mv-mode #distanceRow {
   display: none !important;
 }
 .ar-viewport.mv-mode .mv-viewer { display: block; }
@@ -803,6 +804,23 @@ h1, h2, h3, p {
   color: #fff; font-size: 11px;
 }
 .mount-pill.active .check { display: flex; }
+
+.distance-row {
+  display: none;
+  align-items: center;
+  gap: 10px;
+  background: rgba(0, 0, 0, 0.4);
+  border-radius: 999px;
+  padding: 8px 16px;
+}
+.distance-row.show { display: flex; }
+.distance-row input[type="range"] { flex: 1; }
+.distance-label {
+  color: #fff;
+  font-size: 0.72rem;
+  font-weight: 700;
+  white-space: nowrap;
+}
 
 .ar-secondary-row {
   display: flex;
