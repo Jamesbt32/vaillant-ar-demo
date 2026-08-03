@@ -304,22 +304,66 @@ $("#placeProductBtn").addEventListener("click", () => {
  * -------------------------------------------------------------------*/
 const arViewport = $("#arViewport");
 const mvViewer = $("#mvViewer");
-const mvArHint = $("#mvArHint");
 const dbReadout = $("#dbReadout");
 const distanceSlider = $("#distanceSlider");
+const xrOverlay = $("#xrOverlay");
+const xrScanNote = $("#xrScanNote");
+const xrTapNote = $("#xrTapNote");
 
-// Model-viewer gives no on-screen guidance of its own during a live AR
-// session, so surface our own instruction through the same dom-overlay
-// its ar-button uses, toggled by the real session state.
-mvViewer.addEventListener("ar-status", (e) => {
-  if (e.detail.status === "session-started") {
-    mvArHint.classList.add("show");
+// On WebXR-capable devices (Chrome/Android with ARCore) we drive the AR
+// session ourselves via raw hit-testing (see webxr-ar.js), because that's
+// the only way to control the exact moment the model appears (once a
+// surface is found) versus when it's confirmed (only on tap) - model-viewer's
+// own AR mode doesn't expose those two moments separately. Everywhere else
+// (iOS Safari, desktop) we fall back to model-viewer's native handoff
+// (Quick Look / Scene Viewer), which brings its own native placement UI.
+$("#mvArButton").addEventListener("click", async () => {
+  const supported = window.VaillantWebXR && (await window.VaillantWebXR.isWebXRArSupported());
+  if (supported) {
+    startCustomArSession();
   } else {
-    mvArHint.classList.remove("show");
+    mvViewer.activateAR();
   }
-  if (e.detail.status === "failed") {
-    showToast("AR couldn't start on this device - try the 3D view instead");
-  }
+});
+
+function startCustomArSession() {
+  const product = state.activeProduct;
+  const scale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
+
+  xrOverlay.classList.add("active");
+  xrScanNote.classList.add("show");
+  xrTapNote.classList.remove("show");
+
+  window.VaillantWebXR.startWebXRPlacement({
+    modelUrl: product.model,
+    scale,
+    overlayRoot: xrOverlay,
+    onScanning: () => {
+      xrScanNote.classList.add("show");
+      xrTapNote.classList.remove("show");
+    },
+    onReadyToPlace: () => {
+      xrScanNote.classList.remove("show");
+      xrTapNote.classList.add("show");
+    },
+    onPlaced: () => {
+      xrTapNote.classList.remove("show");
+      showToast("Placed");
+    },
+    onEnd: () => {
+      xrOverlay.classList.remove("active");
+      xrScanNote.classList.remove("show");
+      xrTapNote.classList.remove("show");
+    },
+    onError: () => {
+      xrOverlay.classList.remove("active");
+      showToast("AR couldn't start on this device - try the 3D view instead");
+    }
+  });
+}
+
+$("#xrExitBtn").addEventListener("click", () => {
+  if (window.VaillantWebXR) window.VaillantWebXR.endWebXRPlacement();
 });
 
 function currentVariantHeightMm() {
