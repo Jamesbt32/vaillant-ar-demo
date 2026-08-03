@@ -118,13 +118,21 @@
           <div class="ar-object" id="arObject">
             <img id="arObjectImage" src="" alt="" draggable="false" />
           </div>
+          <div class="scan-dots" id="scanDots"></div>
           <div class="ar-scan-hint" id="arScanHint">
             <div class="scan-phone-track">
               <img class="scan-phone" src="assets/scan-phone.svg" alt="" />
             </div>
             <p>Move your smartphone to scan the surface</p>
-            <p class="scan-subtext">Then tap anywhere on the floor to place it</p>
           </div>
+
+          <div class="ar-reticle-wrap" id="arReticleWrap">
+            <span class="ar-reticle"></span>
+          </div>
+          <button class="cta-btn place-drop-btn" id="placeDropBtn">
+            <span class="cube-icon" data-icon="cube"></span> Place product here
+          </button>
+
           <div class="ar-gesture-hint" id="arGestureHint"></div>
 
           <model-viewer

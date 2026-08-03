@@ -16,7 +16,7 @@ const products = [
     image: SHARED_IMAGE,
     model: SHARED_MODEL,
     hasNoise: true,
-    mounts: ["Wall mount", "Ground mount"],
+    mounts: ["Floor mount", "Wall mount"],
     variants: [
       { label: "3/5 kW", lwa: 55 },
       { label: "7 kW", lwa: 58 },
@@ -34,7 +34,7 @@ const products = [
     image: SHARED_IMAGE,
     model: SHARED_MODEL,
     hasNoise: true,
-    mounts: ["Wall mount", "Ground mount"],
+    mounts: ["Floor mount", "Wall mount"],
     variants: [
       { label: "6 kW", lwa: 57 },
       { label: "12 kW", lwa: 60 },
@@ -266,18 +266,22 @@ const scaleBadge = $("#scaleBadge");
 const mvViewer = $("#mvViewer");
 let mvModeActive = false;
 const dbReadout = $("#dbReadout");
+const scanDots = $("#scanDots");
+const arReticleWrap = $("#arReticleWrap");
+const placeDropBtn = $("#placeDropBtn");
 
 let mediaStream = null;
 let objectPlaced = false;
 let objX = 0;
-let objY = 0;
+let objY = 0; // fixed to the floor line once placed - the object never moves vertically
 let objScale = 1;
-let objRotation = 0;
 const BASE_DISTANCE_M = 2; // metres represented by scale = 1 (100%)
+const FLOOR_Y_RATIO = 0.64; // where the "floor" line sits, as a fraction of viewport height
 
 const pointers = new Map();
-let dragBaseline = null; // {startPointerX, startPointerY, startObjX, startObjY}
-let pinchBaseline = null; // {startDist, startAngle, startScale, startRotation}
+let dragBaseline = null; // {startPointerX, startObjX}
+let pinchBaseline = null; // {startDist, startScale}
+let scanTimer = null;
 
 let hintTimers = [];
 function clearHints() {
@@ -288,11 +292,7 @@ function clearHints() {
 
 function playGestureHints() {
   clearHints();
-  const sequence = [
-    "Drag your finger to move the object",
-    "Pinch to scale the product",
-    "Drag with two fingers to rotate the object"
-  ];
+  const sequence = ["Drag left or right to move it", "Pinch to scale the product"];
   let delay = 300;
   sequence.forEach((text, i) => {
     hintTimers.push(
@@ -309,7 +309,7 @@ function playGestureHints() {
 function applyObjectTransform() {
   arObject.style.left = `${objX}px`;
   arObject.style.top = `${objY}px`;
-  arObject.style.transform = `translate(-50%, -50%) scale(${objScale}) rotate(${objRotation}deg)`;
+  arObject.style.transform = `translate(-50%, -100%) scale(${objScale})`;
 }
 
 function currentDistanceM() {
@@ -340,6 +340,8 @@ function showScaleBadge() {
 }
 
 function resetGestureState() {
+  clearTimeout(scanTimer);
+  clearTimeout(dropObjectAtFloor._t);
   pointers.clear();
   dragBaseline = null;
   pinchBaseline = null;
@@ -347,74 +349,101 @@ function resetGestureState() {
   objX = 0;
   objY = 0;
   objScale = 1;
-  objRotation = 0;
-  arObject.classList.remove("placed");
+  arObject.classList.remove("placed", "dropping");
+  arReticleWrap.classList.remove("show");
+  placeDropBtn.classList.remove("show");
+  scanDots.innerHTML = "";
 }
 
-function clampObjectPosition() {
+function clampObjectX() {
   const rect = arViewport.getBoundingClientRect();
   const margin = 40; // keep at least this much of the object reachable/visible
   objX = Math.min(Math.max(objX, margin), Math.max(rect.width - margin, margin));
-  objY = Math.min(Math.max(objY, margin), Math.max(rect.height - margin, margin));
 }
 
-function placeObjectAt(x, y) {
-  objX = x;
-  objY = y;
-  objScale = 1;
-  objRotation = 0;
-  objectPlaced = true;
-  arObject.classList.add("placed");
+function spawnScanDots() {
+  scanDots.innerHTML = "";
+  const rect = arViewport.getBoundingClientRect();
+  const count = 22;
+  for (let i = 0; i < count; i++) {
+    const dot = document.createElement("span");
+    dot.className = "scan-dot";
+    dot.style.left = `${8 + Math.random() * 84}%`;
+    dot.style.top = `${18 + Math.random() * 64}%`;
+    dot.style.animationDelay = `${Math.random() * 1.8}s`;
+    scanDots.appendChild(dot);
+  }
+}
+
+function beginScanning() {
+  clearTimeout(scanTimer);
+  arScanHint.style.display = "flex";
+  arReticleWrap.classList.remove("show");
+  placeDropBtn.classList.remove("show");
+  spawnScanDots();
+  scanTimer = setTimeout(showReadyToPlace, 2200);
+}
+
+function showReadyToPlace() {
   arScanHint.style.display = "none";
-  applyObjectTransform();
-  playGestureHints();
-
-  // allow placing and immediately dragging in one continuous touch
-  dragBaseline = { start: { x, y }, objX, objY };
+  scanDots.innerHTML = "";
+  const rect = arViewport.getBoundingClientRect();
+  const floorY = rect.height * FLOOR_Y_RATIO;
+  arReticleWrap.style.top = `${floorY}px`;
+  arReticleWrap.classList.add("show");
+  placeDropBtn.classList.add("show");
 }
+
+function dropObjectAtFloor() {
+  const rect = arViewport.getBoundingClientRect();
+  arReticleWrap.classList.remove("show");
+  placeDropBtn.classList.remove("show");
+
+  objX = rect.width / 2;
+  objY = rect.height * FLOOR_Y_RATIO;
+  objScale = 2.1; // appear large first...
+  arObject.classList.remove("dropping");
+  arObject.classList.add("placed");
+  applyObjectTransform();
+
+  // ...then settle down to normal size, like showPOINT's placement animation
+  requestAnimationFrame(() => {
+    arObject.classList.add("dropping");
+    objScale = 1;
+    applyObjectTransform();
+  });
+
+  clearTimeout(dropObjectAtFloor._t);
+  dropObjectAtFloor._t = setTimeout(() => {
+    arObject.classList.remove("dropping");
+    objectPlaced = true;
+    dragBaseline = { startX: objX, objX };
+    playGestureHints();
+  }, 600);
+}
+
+placeDropBtn.addEventListener("click", dropObjectAtFloor);
 
 function pointDistance(a, b) {
   return Math.hypot(a.x - b.x, a.y - b.y);
 }
-function pointAngle(a, b) {
-  return (Math.atan2(b.y - a.y, b.x - a.x) * 180) / Math.PI;
-}
-
-// Safety net: on some browsers pointerdown-based placement can be swallowed
-// (e.g. iOS Safari text-selection/callout gestures). A plain click always
-// fires for a genuine tap, and placeObjectAt() is a no-op if already placed.
-arViewport.addEventListener("click", (e) => {
-  if (mvModeActive || objectPlaced) return;
-  if (e.target.closest("button, .ar-bottom, .ar-topbar, .db-readout")) return;
-  const rect = arViewport.getBoundingClientRect();
-  placeObjectAt(e.clientX - rect.left, e.clientY - rect.top);
-});
 
 arViewport.addEventListener("pointerdown", (e) => {
-  if (mvModeActive) return; // model-viewer owns gestures for real 3D models
+  if (mvModeActive || !objectPlaced) return; // placement is via the explicit button only
   if (e.target.closest("button, .ar-bottom, .ar-topbar, .db-readout")) return;
   arViewport.setPointerCapture(e.pointerId);
   const rect = arViewport.getBoundingClientRect();
   const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-
-  if (!objectPlaced) {
-    placeObjectAt(point.x, point.y);
-    pointers.set(e.pointerId, point);
-    return;
-  }
-
   pointers.set(e.pointerId, point);
 
   if (pointers.size === 1) {
-    dragBaseline = { start: { ...point }, objX, objY };
+    dragBaseline = { startX: point.x, objX };
     pinchBaseline = null;
   } else if (pointers.size === 2) {
     const pts = Array.from(pointers.values());
     pinchBaseline = {
       dist: pointDistance(pts[0], pts[1]),
-      angle: pointAngle(pts[0], pts[1]),
-      scale: objScale,
-      rotation: objRotation
+      scale: objScale
     };
     dragBaseline = null;
   }
@@ -427,16 +456,13 @@ arViewport.addEventListener("pointermove", (e) => {
   pointers.set(e.pointerId, point);
 
   if (pointers.size === 1 && dragBaseline) {
-    objX = dragBaseline.objX + (point.x - dragBaseline.start.x);
-    objY = dragBaseline.objY + (point.y - dragBaseline.start.y);
-    clampObjectPosition();
+    objX = dragBaseline.objX + (point.x - dragBaseline.startX);
+    clampObjectX();
     applyObjectTransform();
   } else if (pointers.size === 2 && pinchBaseline) {
     const pts = Array.from(pointers.values());
     const dist = pointDistance(pts[0], pts[1]);
-    const angle = pointAngle(pts[0], pts[1]);
     objScale = Math.min(2.5, Math.max(0.4, pinchBaseline.scale * (dist / pinchBaseline.dist)));
-    objRotation = pinchBaseline.rotation + (angle - pinchBaseline.angle);
     applyObjectTransform();
     showScaleBadge();
     updateDbReadoutIfVisible();
@@ -447,7 +473,7 @@ function releasePointer(e) {
   pointers.delete(e.pointerId);
   if (pointers.size === 1) {
     const [remaining] = pointers.values();
-    dragBaseline = { start: { ...remaining }, objX, objY };
+    dragBaseline = { startX: remaining.x, objX };
     pinchBaseline = null;
   } else if (pointers.size === 0) {
     dragBaseline = null;
@@ -523,9 +549,9 @@ function enterFlatMode(product) {
   resetGestureState();
   arObjectImage.src = product.image;
   arObjectImage.alt = product.name;
-  arScanHint.style.display = "flex";
   clearHints();
   startCamera();
+  beginScanning();
 }
 
 function enterMvMode(product) {
@@ -681,9 +707,8 @@ $("#captureFab").addEventListener("click", () => {
     const h = w * (img.naturalHeight / img.naturalWidth || 1);
     ctx.save();
     ctx.translate(objX, objY);
-    ctx.rotate((objRotation * Math.PI) / 180);
     ctx.scale(objScale, objScale);
-    ctx.drawImage(img, -w / 2, -h / 2, w, h);
+    ctx.drawImage(img, -w / 2, -h, w, h);
     ctx.restore();
   }
 
@@ -709,8 +734,7 @@ function openMcsModal({ lwa, distance }) {
   $("#mcsDistance").value = distance;
   $("#mcsUnits").value = 1;
   $("#mcsThreshold").value = MCS020_DEFAULT_THRESHOLD;
-  const mountName = (state.activeProduct.mounts[state.activeMountIndex] || "").toLowerCase();
-  $("#mcsDirectivity").value = mountName.includes("ground") ? "4" : "2";
+  $("#mcsDirectivity").value = "2"; // free-standing default; user can switch to corner-mounted (Q=4)
   $("#mcsResult").classList.remove("show");
   mcsModal.classList.add("show");
 }
