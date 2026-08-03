@@ -607,75 +607,6 @@ h1, h2, h3, p {
 }
 .place-drop-btn.show { display: flex; }
 
-.mv-viewer {
-  display: none;
-  position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  --poster-color: #e9edf0;
-  background: #e9edf0;
-}
-.ar-viewport.mv-mode #arVideo,
-.ar-viewport.mv-mode .ar-noVideo,
-.ar-viewport.mv-mode #arCanvas,
-.ar-viewport.mv-mode #arObject,
-.ar-viewport.mv-mode #arScanHint,
-.ar-viewport.mv-mode #scanDots,
-.ar-viewport.mv-mode #arReticleWrap,
-.ar-viewport.mv-mode #placeDropBtn,
-.ar-viewport.mv-mode #distanceRow {
-  display: none !important;
-}
-.ar-viewport.mv-mode .mv-viewer { display: block; }
-
-.mv-ar-btn {
-  position: absolute;
-  left: 50%;
-  bottom: 168px;
-  transform: translateX(-50%);
-  z-index: 3;
-  display: none;
-  align-items: center;
-  gap: 8px;
-  white-space: nowrap;
-}
-.ar-viewport.mv-mode .mv-ar-btn { display: flex; }
-
-.mv-hint {
-  display: none;
-  position: absolute;
-  left: 50%;
-  bottom: 214px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.92);
-  color: var(--ink);
-  padding: 8px 14px;
-  border-radius: 12px;
-  font-size: 0.72rem;
-  font-weight: 600;
-  text-align: center;
-  max-width: 78%;
-  z-index: 3;
-}
-.ar-viewport.mv-mode .mv-hint { display: block; }
-
-.mv-progress {
-  position: absolute;
-  top: 0;
-  left: 0;
-  width: 100%;
-  height: 4px;
-  background: rgba(255, 255, 255, 0.25);
-}
-.mv-progress[hide] { display: none; }
-.mv-progress-fill {
-  height: 100%;
-  width: var(--progress-bar-width, 0%);
-  background: var(--accent);
-  transition: width 0.3s ease;
-}
-
 .ar-topbar {
   position: absolute;
   top: 0;
@@ -820,21 +751,6 @@ h1, h2, h3, p {
   font-size: 0.72rem;
   font-weight: 700;
   white-space: nowrap;
-}
-
-.ar-secondary-row {
-  display: flex;
-  justify-content: center;
-}
-.view3d-btn {
-  border: 1px solid rgba(255, 255, 255, 0.5);
-  background: rgba(0, 0, 0, 0.35);
-  color: #fff;
-  border-radius: 999px;
-  padding: 7px 16px;
-  font-size: 0.76rem;
-  font-weight: 600;
-  cursor: pointer;
 }
 
 .ar-fabs {

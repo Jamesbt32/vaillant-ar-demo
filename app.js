@@ -2,9 +2,11 @@
  * Product data
  * -------------------------------------------------------------------*/
 // versioned query string busts stale browser/CDN caches whenever this asset is replaced
-const SHARED_IMAGE = "assets/device-arotherm-render.png?v=4";
-const SHARED_MODEL = "assets/models/arotherm-plus.glb";
+const SHARED_IMAGE = "assets/device-arotherm-render.png?v=5";
 
+// Real Vaillant aroTHERM plus datasheet figures (width 1100mm / depth 450mm on every
+// variant; height and sound power both scale up with output). heightMm drives the
+// on-screen size difference between variants; lwa is the declared sound power level.
 const products = [
   {
     id: "arotherm-plus",
@@ -15,13 +17,12 @@ const products = [
       "Designed for future-ready homes with whisper-quiet operation, premium seasonal efficiency and intuitive controls.",
     features: ["High energy efficiency", "Future proof", "SCOP up to 4.8", "Smart home compatibility"],
     image: SHARED_IMAGE,
-    model: SHARED_MODEL,
     hasNoise: true,
     mounts: ["Floor mount", "Wall mount"],
     variants: [
-      { label: "3/5 kW", lwa: 55 },
-      { label: "7 kW", lwa: 58 },
-      { label: "10/12 kW", lwa: 61 }
+      { label: "3.5/5 kW", lwa: 54, heightMm: 765 },
+      { label: "7 kW", lwa: 55, heightMm: 965 },
+      { label: "10/12 kW", lwa: 60, heightMm: 1565 }
     ]
   },
   {
@@ -33,13 +34,18 @@ const products = [
       "Steps up output for larger properties and commercial-scale retrofit, while keeping the same whisper-quiet, future-ready design.",
     features: ["Higher output range", "Future proof", "Multi-unit cascade ready", "Smart home compatibility"],
     image: SHARED_IMAGE,
-    model: SHARED_MODEL,
     hasNoise: true,
     mounts: ["Floor mount", "Wall mount"],
+    // Real datasheet figures: VWL 55/7 & VWL 75/7 share a 750mm case (1104mm wide,
+    // 454mm deep); VWL 115/7 steps up to 1103mm (1169mm wide). Sound power for the
+    // 5/7kW case is the confirmed published value; the 11kW figure isn't published
+    // yet (this variant was still pre-order at last check) so it's an estimate
+    // extrapolated from the plus range's small-to-large case increase - verify
+    // against the datasheet once Vaillant publishes it.
     variants: [
-      { label: "6 kW", lwa: 57 },
-      { label: "12 kW", lwa: 60 },
-      { label: "19 kW", lwa: 64 }
+      { label: "5 kW", lwa: 49, heightMm: 750 },
+      { label: "7 kW", lwa: 49, heightMm: 750 },
+      { label: "11 kW", lwa: 55, heightMm: 1103 }
     ]
   }
 ];
@@ -298,8 +304,6 @@ const arObject = $("#arObject");
 const arObjectImage = $("#arObjectImage");
 const arScanHint = $("#arScanHint");
 const scaleBadge = $("#scaleBadge");
-const mvViewer = $("#mvViewer");
-let mvModeActive = false;
 const dbReadout = $("#dbReadout");
 const scanDots = $("#scanDots");
 const arReticleWrap = $("#arReticleWrap");
@@ -311,24 +315,30 @@ let mediaStream = null;
 let objectPlaced = false;
 let objX = 0;
 let objY = 0; // fixed once placed - the object never moves, drag/pinch are disabled
-let objScale = 1;
-const BASE_DISTANCE_M = 2; // metres represented by scale = 1 (100%)
+let objScale = 1; // the actual rendered scale = baseVariantScale * distanceFactor
+let baseVariantScale = 1; // real relative size of the selected kW variant's cabinet
+let distanceFactor = 1; // purely the "walk closer/further" simulation, independent of real size
+const REFERENCE_HEIGHT_MM = 765; // real height of the 3.5/5kW case our 3D model was scanned from
+const BASE_DISTANCE_M = 2; // metres represented by distanceFactor = 1 (100%)
 const FLOOR_Y_RATIO = 0.64; // where the "floor" line sits, as a fraction of viewport height
 const FLOAT_OFFSET_PX = 90; // how high the preview floats above the floor line before dropping
 let scanTimer = null;
 
+function currentVariantHeightMm() {
+  const product = state.activeProduct;
+  const variant = product.variants[state.activeVariantIndex];
+  return (variant && variant.heightMm) || REFERENCE_HEIGHT_MM;
+}
+
 function applyObjectTransform() {
+  objScale = baseVariantScale * distanceFactor;
   arObject.style.left = `${objX}px`;
   arObject.style.top = `${objY}px`;
   arObject.style.transform = `translate(-50%, -100%) scale(${objScale})`;
 }
 
 function currentDistanceM() {
-  if (mvModeActive) {
-    const orbit = mvViewer.getCameraOrbit();
-    return orbit.radius;
-  }
-  return BASE_DISTANCE_M / Math.max(objScale, 0.05);
+  return BASE_DISTANCE_M / Math.max(distanceFactor, 0.05);
 }
 
 function updateDbReadoutIfVisible() {
@@ -344,7 +354,7 @@ function updateDbReadoutIfVisible() {
 }
 
 function showScaleBadge() {
-  scaleBadge.textContent = `${Math.round(objScale * 100)}%`;
+  scaleBadge.textContent = `${Math.round(distanceFactor * 100)}%`;
   scaleBadge.classList.add("show");
   clearTimeout(showScaleBadge._t);
   showScaleBadge._t = setTimeout(() => scaleBadge.classList.remove("show"), 900);
@@ -356,7 +366,9 @@ function resetGestureState() {
   objectPlaced = false;
   objX = 0;
   objY = 0;
-  objScale = 1;
+  distanceFactor = 1;
+  baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
+  objScale = baseVariantScale;
   arObject.classList.remove("placed", "dropping", "floating");
   arReticleWrap.classList.remove("show");
   placeDropBtn.classList.remove("show");
@@ -398,7 +410,8 @@ function showReadyToPlace() {
   // interactive (objectPlaced stays false until "Drop here" is pressed).
   objX = rect.width / 2;
   objY = floorY - FLOAT_OFFSET_PX;
-  objScale = 1;
+  baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
+  distanceFactor = 1;
   arObject.classList.remove("dropping");
   arObject.classList.add("placed", "floating");
   applyObjectTransform();
@@ -430,7 +443,7 @@ function dropObjectAtFloor() {
 }
 
 distanceSlider.addEventListener("input", () => {
-  objScale = Number(distanceSlider.value) / 100;
+  distanceFactor = Number(distanceSlider.value) / 100;
   applyObjectTransform();
   showScaleBadge();
   updateDbReadoutIfVisible();
@@ -487,6 +500,11 @@ $("#variantPills").addEventListener("click", (e) => {
   if (!btn) return;
   state.activeVariantIndex = Number(btn.dataset.index);
   renderVariantPills();
+  // reflect the real cabinet size difference between kW variants immediately
+  if (arObject.classList.contains("placed")) {
+    baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
+    applyObjectTransform();
+  }
   updateDbReadoutIfVisible();
 });
 
@@ -498,20 +516,11 @@ $("#mountPills").addEventListener("click", (e) => {
 });
 
 function enterFlatMode(product) {
-  mvModeActive = false;
-  arViewport.classList.remove("mv-mode");
   resetGestureState();
   arObjectImage.src = product.image;
   arObjectImage.alt = product.name;
   startCamera();
   beginScanning();
-}
-
-function enterMvMode(product) {
-  mvModeActive = true;
-  arViewport.classList.add("mv-mode");
-  stopCamera();
-  mvViewer.src = product.model;
 }
 
 function enterArScreen() {
@@ -524,31 +533,13 @@ function enterArScreen() {
   $("#silentModeToggle").checked = false;
 
   $("#soundFab").style.display = product.hasNoise ? "flex" : "none";
-  const view3dBtn = $("#view3dToggle");
-  view3dBtn.style.display = product.model ? "flex" : "none";
-  view3dBtn.textContent = "View in 3D";
 
   renderVariantPills();
   renderMountPills();
-
-  // The camera/room-scan flow is the default AR view; the orbit-able 3D model is secondary.
   enterFlatMode(product);
 
   showScreen("ar");
 }
-
-$("#view3dToggle").addEventListener("click", () => {
-  const product = state.activeProduct;
-  if (mvModeActive) {
-    $("#view3dToggle").textContent = "View in 3D";
-    enterFlatMode(product);
-  } else {
-    $("#view3dToggle").textContent = "View with camera";
-    enterMvMode(product);
-  }
-});
-
-mvViewer.addEventListener("camera-change", () => updateDbReadoutIfVisible());
 
 $("#arCloseBtn").addEventListener("click", () => {
   stopCamera();
@@ -618,16 +609,6 @@ $("#volumeSlider").addEventListener("input", () => updateDbReadoutIfVisible());
  * Capture (screenshot of camera feed + placed object)
  * -------------------------------------------------------------------*/
 $("#captureFab").addEventListener("click", () => {
-  if (mvModeActive) {
-    const dataUrl = mvViewer.toDataURL("image/png");
-    const a = document.createElement("a");
-    a.href = dataUrl;
-    a.download = `${state.activeProduct.id}-showpoint.png`;
-    a.click();
-    showToast("Photo saved");
-    return;
-  }
-
   const canvas = $("#arCanvas");
   const rect = arViewport.getBoundingClientRect();
   canvas.width = rect.width;
