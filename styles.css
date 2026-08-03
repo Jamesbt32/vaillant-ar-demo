@@ -282,7 +282,7 @@ h1, h2, h3, p {
 }
 .carousel-card img { height: 120px; margin: 0 auto 8px; object-fit: contain; }
 .carousel-card span { font-weight: 700; font-size: 0.85rem; }
-.carousel-card.bounce { animation: carouselCardBounce 420ms ease; }
+.carousel-card img.bounce { animation: carouselCardBounce 420ms ease; }
 @keyframes carouselCardBounce {
   0% { transform: scale(1); }
   40% { transform: scale(1.07); }
@@ -512,10 +512,12 @@ h1, h2, h3, p {
   transform: translate(-50%, -100%) scale(1);
   transform-origin: 50% 100%;
   display: none;
+  opacity: 0;
   filter: drop-shadow(0 30px 26px rgba(0, 0, 0, 0.5));
 }
-.ar-object.placed { display: block; }
-.ar-object.dropping { transition: transform 550ms cubic-bezier(0.34, 1.56, 0.64, 1); }
+.ar-object.placed { display: block; opacity: 1; }
+.ar-object.floating { opacity: 1; transition: opacity 350ms ease; }
+.ar-object.dropping { opacity: 1; transition: top 550ms cubic-bezier(0.34, 1.56, 0.64, 1); }
 .ar-object img { width: 100%; pointer-events: none; }
 
 .scan-dots {
@@ -605,25 +607,6 @@ h1, h2, h3, p {
 }
 .place-drop-btn.show { display: flex; }
 
-.ar-gesture-hint {
-  position: absolute;
-  left: 50%;
-  bottom: 190px;
-  transform: translateX(-50%);
-  background: rgba(255, 255, 255, 0.95);
-  color: var(--ink);
-  padding: 10px 16px;
-  border-radius: 14px;
-  font-size: 0.82rem;
-  font-weight: 600;
-  text-align: center;
-  max-width: 78%;
-  opacity: 0;
-  transition: opacity 220ms ease;
-  pointer-events: none;
-}
-.ar-gesture-hint.show { opacity: 1; }
-
 .mv-viewer {
   display: none;
   position: absolute;
@@ -640,8 +623,7 @@ h1, h2, h3, p {
 .ar-viewport.mv-mode #arScanHint,
 .ar-viewport.mv-mode #scanDots,
 .ar-viewport.mv-mode #arReticleWrap,
-.ar-viewport.mv-mode #placeDropBtn,
-.ar-viewport.mv-mode #arGestureHint {
+.ar-viewport.mv-mode #placeDropBtn {
   display: none !important;
 }
 .ar-viewport.mv-mode .mv-viewer { display: block; }

@@ -2,7 +2,7 @@
  * Product data
  * -------------------------------------------------------------------*/
 // versioned query string busts stale browser/CDN caches whenever this asset is replaced
-const SHARED_IMAGE = "assets/device-arotherm-render.png?v=3";
+const SHARED_IMAGE = "assets/device-arotherm-render.png?v=4";
 const SHARED_MODEL = "assets/models/arotherm-plus.glb";
 
 const products = [
@@ -179,11 +179,11 @@ function renderCarousel() {
       if (index === lastActiveCardIndex) return;
       lastActiveCardIndex = index;
       const cards = $$(".carousel-card");
-      const activeCard = cards[index];
-      if (!activeCard) return;
-      activeCard.classList.remove("bounce");
-      void activeCard.offsetWidth; // restart the animation if it's still running
-      activeCard.classList.add("bounce");
+      const activeImg = cards[index] && cards[index].querySelector("img");
+      if (!activeImg) return;
+      activeImg.classList.remove("bounce");
+      void activeImg.offsetWidth; // restart the animation if it's still running
+      activeImg.classList.add("bounce");
     }, 120);
   });
 
@@ -297,7 +297,6 @@ const arNoVideo = $("#arNoVideo");
 const arObject = $("#arObject");
 const arObjectImage = $("#arObjectImage");
 const arScanHint = $("#arScanHint");
-const arGestureHint = $("#arGestureHint");
 const scaleBadge = $("#scaleBadge");
 const mvViewer = $("#mvViewer");
 let mvModeActive = false;
@@ -309,38 +308,12 @@ const placeDropBtn = $("#placeDropBtn");
 let mediaStream = null;
 let objectPlaced = false;
 let objX = 0;
-let objY = 0; // fixed to the floor line once placed - the object never moves vertically
+let objY = 0; // fixed once placed - the object never moves, drag/pinch are disabled
 let objScale = 1;
 const BASE_DISTANCE_M = 2; // metres represented by scale = 1 (100%)
 const FLOOR_Y_RATIO = 0.64; // where the "floor" line sits, as a fraction of viewport height
-
-const pointers = new Map();
-let dragBaseline = null; // {startPointerX, startObjX}
-let pinchBaseline = null; // {startDist, startScale}
+const FLOAT_OFFSET_PX = 90; // how high the preview floats above the floor line before dropping
 let scanTimer = null;
-
-let hintTimers = [];
-function clearHints() {
-  hintTimers.forEach((t) => clearTimeout(t));
-  hintTimers = [];
-  arGestureHint.classList.remove("show");
-}
-
-function playGestureHints() {
-  clearHints();
-  const sequence = ["Drag left or right to move it", "Pinch to scale the product"];
-  let delay = 300;
-  sequence.forEach((text, i) => {
-    hintTimers.push(
-      setTimeout(() => {
-        arGestureHint.textContent = text;
-        arGestureHint.classList.add("show");
-      }, delay)
-    );
-    delay += 2600;
-    hintTimers.push(setTimeout(() => arGestureHint.classList.remove("show"), delay - 300));
-  });
-}
 
 function applyObjectTransform() {
   arObject.style.left = `${objX}px`;
@@ -378,9 +351,6 @@ function showScaleBadge() {
 function resetGestureState() {
   clearTimeout(scanTimer);
   clearTimeout(dropObjectAtFloor._t);
-  pointers.clear();
-  dragBaseline = null;
-  pinchBaseline = null;
   objectPlaced = false;
   objX = 0;
   objY = 0;
@@ -389,12 +359,6 @@ function resetGestureState() {
   arReticleWrap.classList.remove("show");
   placeDropBtn.classList.remove("show");
   scanDots.innerHTML = "";
-}
-
-function clampObjectX() {
-  const rect = arViewport.getBoundingClientRect();
-  const margin = 40; // keep at least this much of the object reachable/visible
-  objX = Math.min(Math.max(objX, margin), Math.max(rect.width - margin, margin));
 }
 
 function spawnScanDots() {
@@ -426,13 +390,13 @@ function showReadyToPlace() {
   const rect = arViewport.getBoundingClientRect();
   const floorY = rect.height * FLOOR_Y_RATIO;
 
-  // Reveal the heat pump as a preview above the drop circle - not yet
+  // Reveal the heat pump floating above the drop circle - not yet
   // interactive (objectPlaced stays false until "Drop here" is pressed).
   objX = rect.width / 2;
-  objY = floorY;
+  objY = floorY - FLOAT_OFFSET_PX;
   objScale = 1;
   arObject.classList.remove("dropping");
-  arObject.classList.add("placed");
+  arObject.classList.add("placed", "floating");
   applyObjectTransform();
 
   arReticleWrap.style.top = `${floorY}px`;
@@ -441,88 +405,25 @@ function showReadyToPlace() {
 }
 
 function dropObjectAtFloor() {
+  const rect = arViewport.getBoundingClientRect();
+  const floorY = rect.height * FLOOR_Y_RATIO;
   arReticleWrap.classList.remove("show");
   placeDropBtn.classList.remove("show");
 
-  // small confirm bounce as it settles onto the floor
+  // animate down from the floating preview position to rest on the floor
+  arObject.classList.remove("floating");
   arObject.classList.add("dropping");
-  objScale = 1.08;
+  objY = floorY;
   applyObjectTransform();
-  requestAnimationFrame(() => {
-    objScale = 1;
-    applyObjectTransform();
-  });
 
   clearTimeout(dropObjectAtFloor._t);
   dropObjectAtFloor._t = setTimeout(() => {
     arObject.classList.remove("dropping");
-    objectPlaced = true;
-    dragBaseline = { startX: objX, objX };
-    playGestureHints();
-  }, 400);
+    objectPlaced = true; // fixed in place: no drag, no pinch-to-scale from here
+  }, 550);
 }
 
 placeDropBtn.addEventListener("click", dropObjectAtFloor);
-
-function pointDistance(a, b) {
-  return Math.hypot(a.x - b.x, a.y - b.y);
-}
-
-arViewport.addEventListener("pointerdown", (e) => {
-  if (mvModeActive || !objectPlaced) return; // placement is via the explicit button only
-  if (e.target.closest("button, .ar-bottom, .ar-topbar, .db-readout")) return;
-  arViewport.setPointerCapture(e.pointerId);
-  const rect = arViewport.getBoundingClientRect();
-  const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  pointers.set(e.pointerId, point);
-
-  if (pointers.size === 1) {
-    dragBaseline = { startX: point.x, objX };
-    pinchBaseline = null;
-  } else if (pointers.size === 2) {
-    const pts = Array.from(pointers.values());
-    pinchBaseline = {
-      dist: pointDistance(pts[0], pts[1]),
-      scale: objScale
-    };
-    dragBaseline = null;
-  }
-});
-
-arViewport.addEventListener("pointermove", (e) => {
-  if (!pointers.has(e.pointerId)) return;
-  const rect = arViewport.getBoundingClientRect();
-  const point = { x: e.clientX - rect.left, y: e.clientY - rect.top };
-  pointers.set(e.pointerId, point);
-
-  if (pointers.size === 1 && dragBaseline) {
-    objX = dragBaseline.objX + (point.x - dragBaseline.startX);
-    clampObjectX();
-    applyObjectTransform();
-  } else if (pointers.size === 2 && pinchBaseline) {
-    const pts = Array.from(pointers.values());
-    const dist = pointDistance(pts[0], pts[1]);
-    objScale = Math.min(2.5, Math.max(0.4, pinchBaseline.scale * (dist / pinchBaseline.dist)));
-    applyObjectTransform();
-    showScaleBadge();
-    updateDbReadoutIfVisible();
-  }
-});
-
-function releasePointer(e) {
-  pointers.delete(e.pointerId);
-  if (pointers.size === 1) {
-    const [remaining] = pointers.values();
-    dragBaseline = { startX: remaining.x, objX };
-    pinchBaseline = null;
-  } else if (pointers.size === 0) {
-    dragBaseline = null;
-    pinchBaseline = null;
-  }
-}
-arViewport.addEventListener("pointerup", releasePointer);
-arViewport.addEventListener("pointercancel", releasePointer);
-arViewport.addEventListener("lostpointercapture", releasePointer);
 
 async function startCamera() {
   try {
@@ -589,7 +490,6 @@ function enterFlatMode(product) {
   resetGestureState();
   arObjectImage.src = product.image;
   arObjectImage.alt = product.name;
-  clearHints();
   startCamera();
   beginScanning();
 }
@@ -598,7 +498,6 @@ function enterMvMode(product) {
   mvModeActive = true;
   arViewport.classList.add("mv-mode");
   stopCamera();
-  clearHints();
   mvViewer.src = product.model;
 }
 
@@ -641,7 +540,6 @@ mvViewer.addEventListener("camera-change", () => updateDbReadoutIfVisible());
 $("#arCloseBtn").addEventListener("click", () => {
   stopCamera();
   stopHum();
-  clearHints();
   showScreen("detail");
 });
 
