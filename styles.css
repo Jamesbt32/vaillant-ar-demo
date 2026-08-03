@@ -278,9 +278,17 @@ h1, h2, h3, p {
   border-radius: var(--radius-md);
   padding: 14px;
   text-align: center;
+  cursor: pointer;
 }
 .carousel-card img { height: 120px; margin: 0 auto 8px; object-fit: contain; }
 .carousel-card span { font-weight: 700; font-size: 0.85rem; }
+.carousel-card.bounce { animation: carouselCardBounce 420ms ease; }
+@keyframes carouselCardBounce {
+  0% { transform: scale(1); }
+  40% { transform: scale(1.07); }
+  70% { transform: scale(0.98); }
+  100% { transform: scale(1); }
+}
 
 .carousel-dots {
   display: flex;

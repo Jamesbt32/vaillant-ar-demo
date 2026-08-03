@@ -1,7 +1,8 @@
 /* ---------------------------------------------------------------------
  * Product data
  * -------------------------------------------------------------------*/
-const SHARED_IMAGE = "assets/device-arotherm-render.png";
+// versioned query string busts stale browser/CDN caches whenever this asset is replaced
+const SHARED_IMAGE = "assets/device-arotherm-render.png?v=3";
 const SHARED_MODEL = "assets/models/arotherm-plus.glb";
 
 const products = [
@@ -165,10 +166,25 @@ function renderCarousel() {
     .join("");
   dots.innerHTML = products.map((_, i) => `<span class="${i === 0 ? "active" : ""}"></span>`).join("");
 
+  let lastActiveCardIndex = 0;
+  let scrollBounceTimer = null;
   carousel.addEventListener("scroll", () => {
     const cardWidth = carousel.firstElementChild.getBoundingClientRect().width + 14;
     const index = Math.round(carousel.scrollLeft / cardWidth);
     $$("#carouselDots span").forEach((dot, i) => dot.classList.toggle("active", i === index));
+
+    // debounce so the bounce plays once the swipe actually settles on a new card
+    clearTimeout(scrollBounceTimer);
+    scrollBounceTimer = setTimeout(() => {
+      if (index === lastActiveCardIndex) return;
+      lastActiveCardIndex = index;
+      const cards = $$(".carousel-card");
+      const activeCard = cards[index];
+      if (!activeCard) return;
+      activeCard.classList.remove("bounce");
+      void activeCard.offsetWidth; // restart the animation if it's still running
+      activeCard.classList.add("bounce");
+    }, 120);
   });
 
   // Tapping a heat pump image jumps straight into the AR/drop screen for it.
@@ -598,17 +614,13 @@ function enterArScreen() {
   $("#soundFab").style.display = product.hasNoise ? "flex" : "none";
   const view3dBtn = $("#view3dToggle");
   view3dBtn.style.display = product.model ? "flex" : "none";
+  view3dBtn.textContent = "View in 3D";
 
   renderVariantPills();
   renderMountPills();
 
-  // The orbit-able 3D model is the default AR view; the camera/scan flow is secondary.
-  if (product.model) {
-    view3dBtn.textContent = "View with camera";
-    enterMvMode(product);
-  } else {
-    enterFlatMode(product);
-  }
+  // The camera/room-scan flow is the default AR view; the orbit-able 3D model is secondary.
+  enterFlatMode(product);
 
   showScreen("ar");
 }
