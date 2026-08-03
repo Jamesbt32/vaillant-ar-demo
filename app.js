@@ -125,6 +125,23 @@ function showScreen(name) {
   $$(".screen").forEach((el) => el.classList.toggle("active", el.dataset.screen === name));
 }
 
+function slideToScreen(fromName, toName, durationMs = 420) {
+  const fromEl = document.querySelector(`[data-screen="${fromName}"]`);
+  const toEl = document.querySelector(`[data-screen="${toName}"]`);
+
+  toEl.classList.add("active", "slide-in-start");
+  void toEl.offsetWidth; // force reflow so the starting position is applied first
+  fromEl.classList.add("slide-out");
+  toEl.classList.remove("slide-in-start");
+  toEl.classList.add("slide-in");
+
+  setTimeout(() => {
+    fromEl.classList.remove("active", "slide-out");
+    toEl.classList.remove("slide-in");
+    state.screen = toName;
+  }, durationMs);
+}
+
 $$("[data-back]").forEach((btn) => {
   btn.addEventListener("click", () => showScreen(btn.dataset.back));
 });
@@ -132,7 +149,7 @@ $$("[data-back]").forEach((btn) => {
 /* ---------------------------------------------------------------------
  * Splash
  * -------------------------------------------------------------------*/
-$("#splashContinue").addEventListener("click", () => showScreen("menu"));
+$("#splashContinue").addEventListener("click", () => slideToScreen("splash", "menu"));
 
 /* ---------------------------------------------------------------------
  * Menu: carousel + topic list
@@ -141,7 +158,10 @@ function renderCarousel() {
   const carousel = $("#carousel");
   const dots = $("#carouselDots");
   carousel.innerHTML = products
-    .map((p) => `<div class="carousel-card"><img src="${p.image}" alt="${p.name}" /><span>${p.name}</span></div>`)
+    .map(
+      (p) =>
+        `<div class="carousel-card" data-product-id="${p.id}"><img src="${p.image}" alt="${p.name}" /><span>${p.name}</span></div>`
+    )
     .join("");
   dots.innerHTML = products.map((_, i) => `<span class="${i === 0 ? "active" : ""}"></span>`).join("");
 
@@ -150,22 +170,22 @@ function renderCarousel() {
     const index = Math.round(carousel.scrollLeft / cardWidth);
     $$("#carouselDots span").forEach((dot, i) => dot.classList.toggle("active", i === index));
   });
+
+  // Tapping a heat pump image jumps straight into the AR/drop screen for it.
+  carousel.addEventListener("click", (e) => {
+    const card = e.target.closest(".carousel-card");
+    if (!card) return;
+    openProductDetail(card.dataset.productId);
+    enterArScreen();
+  });
 }
 
-$$("#topicList li").forEach((li) => {
+$$("#topicList li:not(.topic-highlight)").forEach((li) => {
   li.addEventListener("click", () => {
-    const topic = li.dataset.topic;
-    if (topic === "products") {
-      state.listFilter = "All";
-      renderFilters();
-      renderProductGrid();
-      showScreen("list");
-    } else {
-      const content = topicContent[topic];
-      $("#topicTitle").textContent = content.title;
-      $("#topicBody").innerHTML = content.html;
-      showScreen("topic");
-    }
+    const content = topicContent[li.dataset.topic];
+    $("#topicTitle").textContent = content.title;
+    $("#topicBody").innerHTML = content.html;
+    showScreen("topic");
   });
 });
 
@@ -389,26 +409,30 @@ function showReadyToPlace() {
   scanDots.innerHTML = "";
   const rect = arViewport.getBoundingClientRect();
   const floorY = rect.height * FLOOR_Y_RATIO;
+
+  // Reveal the heat pump as a preview above the drop circle - not yet
+  // interactive (objectPlaced stays false until "Drop here" is pressed).
+  objX = rect.width / 2;
+  objY = floorY;
+  objScale = 1;
+  arObject.classList.remove("dropping");
+  arObject.classList.add("placed");
+  applyObjectTransform();
+
   arReticleWrap.style.top = `${floorY}px`;
   arReticleWrap.classList.add("show");
   placeDropBtn.classList.add("show");
 }
 
 function dropObjectAtFloor() {
-  const rect = arViewport.getBoundingClientRect();
   arReticleWrap.classList.remove("show");
   placeDropBtn.classList.remove("show");
 
-  objX = rect.width / 2;
-  objY = rect.height * FLOOR_Y_RATIO;
-  objScale = 2.1; // appear large first...
-  arObject.classList.remove("dropping");
-  arObject.classList.add("placed");
+  // small confirm bounce as it settles onto the floor
+  arObject.classList.add("dropping");
+  objScale = 1.08;
   applyObjectTransform();
-
-  // ...then settle down to normal size, like showPOINT's placement animation
   requestAnimationFrame(() => {
-    arObject.classList.add("dropping");
     objScale = 1;
     applyObjectTransform();
   });
@@ -419,7 +443,7 @@ function dropObjectAtFloor() {
     objectPlaced = true;
     dragBaseline = { startX: objX, objX };
     playGestureHints();
-  }, 600);
+  }, 400);
 }
 
 placeDropBtn.addEventListener("click", dropObjectAtFloor);
@@ -574,12 +598,17 @@ function enterArScreen() {
   $("#soundFab").style.display = product.hasNoise ? "flex" : "none";
   const view3dBtn = $("#view3dToggle");
   view3dBtn.style.display = product.model ? "flex" : "none";
-  view3dBtn.textContent = "View true 3D";
 
   renderVariantPills();
   renderMountPills();
 
-  enterFlatMode(product);
+  // The orbit-able 3D model is the default AR view; the camera/scan flow is secondary.
+  if (product.model) {
+    view3dBtn.textContent = "View with camera";
+    enterMvMode(product);
+  } else {
+    enterFlatMode(product);
+  }
 
   showScreen("ar");
 }
@@ -587,10 +616,10 @@ function enterArScreen() {
 $("#view3dToggle").addEventListener("click", () => {
   const product = state.activeProduct;
   if (mvModeActive) {
-    $("#view3dToggle").textContent = "View true 3D";
+    $("#view3dToggle").textContent = "View in 3D";
     enterFlatMode(product);
   } else {
-    $("#view3dToggle").textContent = "Back to camera view";
+    $("#view3dToggle").textContent = "View with camera";
     enterMvMode(product);
   }
 });

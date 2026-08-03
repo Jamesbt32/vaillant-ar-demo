@@ -67,6 +67,16 @@ button {
   display: flex;
 }
 
+.screen.slide-in-start { transform: translateX(100%); }
+.screen.slide-out {
+  transform: translateX(-100%);
+  transition: transform 420ms ease;
+}
+.screen.slide-in {
+  transform: translateX(0%);
+  transition: transform 420ms ease;
+}
+
 .muted {
   color: var(--muted);
 }
@@ -313,6 +323,15 @@ h1, h2, h3, p {
 }
 .topic-list li:last-child { border-bottom: 0; }
 .chevron { color: var(--muted); font-size: 1.2rem; }
+.topic-list li.topic-highlight {
+  cursor: default;
+  background: linear-gradient(90deg, rgba(47, 198, 166, 0.14), rgba(47, 198, 166, 0.03));
+  margin: 0 -4px;
+  padding: 16px 12px;
+  border-radius: 12px;
+  border-bottom: 0;
+  color: var(--accent);
+}
 
 /* ---------- Bars ---------- */
 .bar {
