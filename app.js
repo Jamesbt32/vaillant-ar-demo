@@ -206,6 +206,8 @@ function renderCarousel() {
   });
 }
 
+$(".topic-highlight").addEventListener("click", () => showScreen("list"));
+
 $$("#topicList li:not(.topic-highlight)").forEach((li) => {
   li.addEventListener("click", () => {
     const content = topicContent[li.dataset.topic];
@@ -309,6 +311,25 @@ const distanceSlider = $("#distanceSlider");
 const xrOverlay = $("#xrOverlay");
 const xrScanNote = $("#xrScanNote");
 const xrTapNote = $("#xrTapNote");
+const xrScanDots = $("#xrScanDots");
+
+function spawnScanDots() {
+  xrScanDots.innerHTML = "";
+  for (let i = 0; i < 22; i++) {
+    const dot = document.createElement("span");
+    dot.className = "scan-dot";
+    dot.style.left = `${8 + Math.random() * 84}%`;
+    dot.style.top = `${18 + Math.random() * 64}%`;
+    dot.style.animationDelay = `${Math.random() * 1.8}s`;
+    xrScanDots.appendChild(dot);
+  }
+  xrScanDots.classList.add("show");
+}
+
+function clearScanDots() {
+  xrScanDots.classList.remove("show");
+  xrScanDots.innerHTML = "";
+}
 
 // On WebXR-capable devices (Chrome/Android with ARCore) we drive the AR
 // session ourselves via raw hit-testing (see webxr-ar.js), because that's
@@ -333,6 +354,7 @@ function startCustomArSession() {
   xrOverlay.classList.add("active");
   xrScanNote.classList.add("show");
   xrTapNote.classList.remove("show");
+  spawnScanDots();
 
   window.VaillantWebXR.startWebXRPlacement({
     modelUrl: product.model,
@@ -341,10 +363,12 @@ function startCustomArSession() {
     onScanning: () => {
       xrScanNote.classList.add("show");
       xrTapNote.classList.remove("show");
+      spawnScanDots();
     },
     onReadyToPlace: () => {
       xrScanNote.classList.remove("show");
       xrTapNote.classList.add("show");
+      clearScanDots();
     },
     onPlaced: () => {
       xrTapNote.classList.remove("show");
@@ -354,9 +378,11 @@ function startCustomArSession() {
       xrOverlay.classList.remove("active");
       xrScanNote.classList.remove("show");
       xrTapNote.classList.remove("show");
+      clearScanDots();
     },
     onError: (err) => {
       xrOverlay.classList.remove("active");
+      clearScanDots();
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);
       showToast("Switching to your device's AR viewer...");
       // isWebXRArSupported() only confirms a bare "immersive-ar" session is

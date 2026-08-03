@@ -557,37 +557,58 @@ h1, h2, h3, p {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 10px;
   text-align: center;
   padding: 0 40px;
 }
 .xr-scan-note.show { display: flex; }
+/* The moving phone is the main signal; the caption is a small supporting
+   label underneath it, not the other way around. */
 .xr-scan-note p {
-  background: rgba(20, 30, 26, 0.85);
   color: #fff;
-  padding: 12px 18px;
-  border-radius: 14px;
-  font-size: 0.95rem;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.85);
+  font-size: 0.8rem;
   font-weight: 600;
   max-width: 100%;
 }
 .scan-phone-track {
-  width: 220px;
-  height: 120px;
+  width: 260px;
+  height: 160px;
   display: flex;
   align-items: flex-start;
   justify-content: center;
   overflow: visible;
 }
 .scan-phone {
-  width: 56px;
-  filter: drop-shadow(0 10px 14px rgba(0, 0, 0, 0.4));
+  width: 88px;
+  filter: drop-shadow(0 12px 16px rgba(0, 0, 0, 0.5));
   animation: scanSweep 2.6s ease-in-out infinite;
 }
 @keyframes scanSweep {
-  0% { transform: translateX(-64px) rotate(-14deg); }
-  50% { transform: translateX(64px) rotate(14deg); }
-  100% { transform: translateX(-64px) rotate(-14deg); }
+  0% { transform: translateX(-70px) rotate(-16deg); }
+  50% { transform: translateX(70px) rotate(16deg); }
+  100% { transform: translateX(-70px) rotate(-16deg); }
+}
+
+.scan-dots {
+  display: none;
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.scan-dots.show { display: block; }
+.scan-dot {
+  position: absolute;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ffd23f;
+  box-shadow: 0 0 8px 2px rgba(255, 210, 63, 0.75);
+  animation: dotTwinkle 1.8s ease-in-out infinite;
+}
+@keyframes dotTwinkle {
+  0%, 100% { opacity: 0; transform: scale(0.6); }
+  40%, 70% { opacity: 1; transform: scale(1); }
 }
 
 .xr-tap-note {

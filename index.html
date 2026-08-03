@@ -129,6 +129,7 @@
             ar-modes="webxr scene-viewer quick-look"
             ar-placement="floor"
             ar-scale="fixed"
+            camera-target="0m 0.05m 0m"
             shadow-intensity="1"
             exposure="1"
           >
@@ -143,9 +144,17 @@
                dom-overlay feature only while a real AR session is active. -->
           <div class="xr-overlay" id="xrOverlay">
             <button class="icon-btn light xr-exit-btn" id="xrExitBtn" data-icon="close" aria-label="Exit AR"></button>
+            <div class="scan-dots" id="xrScanDots"></div>
             <div class="xr-scan-note" id="xrScanNote">
               <div class="scan-phone-track">
-                <img class="scan-phone" src="assets/scan-phone.svg" alt="" />
+                <svg class="scan-phone" viewBox="0 0 120 220" xmlns="http://www.w3.org/2000/svg">
+                  <rect x="6" y="6" width="108" height="208" rx="22" fill="#20242a" stroke="#8a929c" stroke-width="4"/>
+                  <rect x="16" y="26" width="88" height="150" rx="6" fill="#cfe9ff"/>
+                  <circle cx="60" cy="196" r="9" fill="#8a929c"/>
+                  <rect x="42" y="12" width="36" height="6" rx="3" fill="#8a929c"/>
+                  <path d="M40 70 L60 55 L80 70" stroke="#2fc6a6" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                  <path d="M40 132 L60 147 L80 132" stroke="#2fc6a6" stroke-width="7" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+                </svg>
               </div>
               <p>Scan where you want your heat pump</p>
             </div>

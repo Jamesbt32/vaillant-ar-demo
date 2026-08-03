@@ -30,6 +30,7 @@ function loadModel(url) {
 function createReticle() {
   const geometry = new THREE.RingGeometry(0.14, 0.18, 32).rotateX(-Math.PI / 2);
   const material = new THREE.MeshBasicMaterial({ color: 0xffffff });
+  material.toneMapped = false; // keep it crisply white regardless of scene tone-mapping
   const ring = new THREE.Mesh(geometry, material);
   ring.matrixAutoUpdate = false;
   ring.visible = false;
@@ -92,14 +93,25 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
+    // Without explicit color management, a GLB loaded through raw Three.js
+    // can render far too dark/wrong compared to model-viewer (which handles
+    // this internally) - on an already-dark anthracite model that can mean
+    // effectively invisible against the camera passthrough.
+    renderer.outputColorSpace = THREE.SRGBColorSpace;
+    renderer.toneMapping = THREE.ACESFilmicToneMapping;
+    renderer.toneMappingExposure = 1.3;
 
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera();
 
-    scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 1.3));
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-    dirLight.position.set(1, 2, 1);
+    scene.add(new THREE.AmbientLight(0xffffff, 0.7));
+    scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.6));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1.8);
+    dirLight.position.set(1, 3, 1);
     scene.add(dirLight);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 0.9);
+    fillLight.position.set(-1, 2, -1);
+    scene.add(fillLight);
 
     reticle = createReticle();
     scene.add(reticle);
