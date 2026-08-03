@@ -344,8 +344,22 @@ $("#mvArButton").addEventListener("click", async () => {
     startCustomArSession();
   } else {
     console.warn("WebXR immersive-ar not supported here, using device AR viewer");
-    showToast("WebXR not supported here — using device AR viewer", 4000);
+    // DEBUG: a toast can be swept away instantly when the device switches to
+    // Scene Viewer/Quick Look, so this uses a blocking alert instead - it's
+    // temporary instrumentation to find out why the custom overlay never
+    // engages. Remove once the real cause is confirmed.
+    alert("DEBUG: WebXR not supported here - using device AR viewer");
     mvViewer.activateAR();
+  }
+});
+
+// DEBUG: model-viewer's own AR handoff (Scene Viewer/Quick Look) status,
+// so we can see if/why a *second* tap of "Place in your room" silently
+// fails to relaunch it. Remove once the real cause is confirmed.
+mvViewer.addEventListener("ar-status", (e) => {
+  console.log("model-viewer ar-status:", e.detail && e.detail.status);
+  if (e.detail && e.detail.status === "failed") {
+    alert("DEBUG: model-viewer AR status = failed");
   }
 });
 
@@ -385,9 +399,12 @@ function startCustomArSession() {
     onError: (err) => {
       xrOverlay.classList.remove("active");
       clearScanDots();
-      const reason = err && err.message ? err.message : String(err);
+      const reason = `${(err && err.name) || "Error"}: ${(err && err.message) || String(err)}`;
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);
-      showToast(`AR error: ${reason} — using device AR viewer`, 5000);
+      // DEBUG: blocking alert instead of a toast, since a toast can be swept
+      // away instantly when the device switches to Scene Viewer. Remove once
+      // the real cause is confirmed.
+      alert(`DEBUG: custom WebXR failed - ${reason}`);
       // isWebXRArSupported() only confirms a bare "immersive-ar" session is
       // possible - it doesn't guarantee the hit-test feature we need is also
       // available, so a real failure here still needs a fallback rather than
