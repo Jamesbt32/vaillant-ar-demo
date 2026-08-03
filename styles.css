@@ -490,7 +490,7 @@ h1, h2, h3, p {
 .mv-ar-btn {
   position: absolute;
   left: 50%;
-  bottom: 168px;
+  bottom: 215px;
   transform: translateX(-50%);
   z-index: 3;
   display: flex;
@@ -502,7 +502,7 @@ h1, h2, h3, p {
 .mv-hint {
   position: absolute;
   left: 50%;
-  bottom: 214px;
+  bottom: 265px;
   transform: translateX(-50%);
   background: rgba(255, 255, 255, 0.92);
   color: var(--ink);
@@ -691,6 +691,12 @@ h1, h2, h3, p {
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+}
+.variant-height-note {
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 0.72rem;
+  font-weight: 600;
+  margin: -2px 0 0;
 }
 .variant-pill, .mount-pill {
   border: 1px solid rgba(255, 255, 255, 0.5);

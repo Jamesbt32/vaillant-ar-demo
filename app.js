@@ -355,9 +355,15 @@ function startCustomArSession() {
       xrScanNote.classList.remove("show");
       xrTapNote.classList.remove("show");
     },
-    onError: () => {
+    onError: (err) => {
       xrOverlay.classList.remove("active");
-      showToast("AR couldn't start on this device - try the 3D view instead");
+      console.warn("Custom WebXR placement failed, falling back to native AR:", err);
+      showToast("Switching to your device's AR viewer...");
+      // isWebXRArSupported() only confirms a bare "immersive-ar" session is
+      // possible - it doesn't guarantee the hit-test feature we need is also
+      // available, so a real failure here still needs a fallback rather than
+      // just stopping.
+      mvViewer.activateAR();
     }
   });
 }
@@ -372,11 +378,22 @@ function currentVariantHeightMm() {
   return (variant && variant.heightMm) || REFERENCE_HEIGHT_MM;
 }
 
-// Real relative size between kW variants (the 3D model itself is the
-// 3.5/5kW case; bigger variants use a larger real-world cabinet).
+// model-viewer only properly auto-frames a model once, right when it first
+// loads. Changing `scale` afterwards on the same live instance doesn't
+// re-frame it: neither the camera-orbit/field-of-view attributes, their
+// (non-existent) property setters, nor forcing a reload via src reliably
+// reach the live camera once camera-controls has taken over - all three
+// were tried and confirmed not to work (getCameraOrbit() kept returning the
+// original radius, and the reload path left it permanently unloaded).
+// Rather than keep fighting that, the inline preview stays at a single
+// consistent scale (the 3.5/5kW reference case, which frames correctly),
+// and the real height is shown as text instead. Actual relative sizing
+// between variants only applies where it can be done correctly: our own
+// WebXR placement code, which sets scale on a freshly-loaded Three.js scene
+// graph rather than mutating an already-interactive model-viewer instance.
 function applyVariantScale() {
-  const s = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
-  mvViewer.setAttribute("scale", `${s} ${s} ${s}`);
+  const heightM = (currentVariantHeightMm() / 1000).toFixed(2);
+  $("#variantHeightNote").textContent = `Actual unit height: ${heightM}m`;
 }
 
 // The "distance" here is a manual, honestly-simulated input (see the
@@ -454,9 +471,8 @@ function enterArScreen() {
 
   renderVariantPills();
   renderMountPills();
-
-  mvViewer.src = product.model;
   applyVariantScale();
+  mvViewer.src = product.model;
 
   showScreen("ar");
 }
