@@ -3,6 +3,8 @@
  * -------------------------------------------------------------------*/
 // versioned query string busts stale browser/CDN caches whenever this asset is replaced
 const SHARED_IMAGE = "assets/device-arotherm-render.png?v=5";
+const SHARED_MODEL = "assets/models/arotherm-plus.glb";
+const REFERENCE_HEIGHT_MM = 765; // real height of the 3.5/5kW case the 3D model was scanned from
 
 // Real Vaillant aroTHERM plus datasheet figures (width 1100mm / depth 450mm on every
 // variant; height and sound power both scale up with output). heightMm drives the
@@ -17,6 +19,7 @@ const products = [
       "Designed for future-ready homes with whisper-quiet operation, premium seasonal efficiency and intuitive controls.",
     features: ["High energy efficiency", "Future proof", "SCOP up to 4.8", "Smart home compatibility"],
     image: SHARED_IMAGE,
+    model: SHARED_MODEL,
     hasNoise: true,
     mounts: ["Floor mount", "Wall mount"],
     variants: [
@@ -34,6 +37,7 @@ const products = [
       "Steps up output for larger properties and commercial-scale retrofit, while keeping the same whisper-quiet, future-ready design.",
     features: ["Higher output range", "Future proof", "Multi-unit cascade ready", "Smart home compatibility"],
     image: SHARED_IMAGE,
+    model: SHARED_MODEL,
     hasNoise: true,
     mounts: ["Floor mount", "Wall mount"],
     // Real datasheet figures: VWL 55/7 & VWL 75/7 share a 750mm case (1104mm wide,
@@ -295,34 +299,13 @@ $("#placeProductBtn").addEventListener("click", () => {
 });
 
 /* ---------------------------------------------------------------------
- * AR screen
+ * AR screen (model-viewer: real WebXR / Scene Viewer / Quick Look AR when
+ * the device and browser support it, orbit-able 3D inspector otherwise)
  * -------------------------------------------------------------------*/
 const arViewport = $("#arViewport");
-const arVideo = $("#arVideo");
-const arNoVideo = $("#arNoVideo");
-const arObject = $("#arObject");
-const arObjectImage = $("#arObjectImage");
-const arScanHint = $("#arScanHint");
-const scaleBadge = $("#scaleBadge");
+const mvViewer = $("#mvViewer");
 const dbReadout = $("#dbReadout");
-const scanDots = $("#scanDots");
-const arReticleWrap = $("#arReticleWrap");
-const placeDropBtn = $("#placeDropBtn");
-const distanceRow = $("#distanceRow");
 const distanceSlider = $("#distanceSlider");
-
-let mediaStream = null;
-let objectPlaced = false;
-let objX = 0;
-let objY = 0; // fixed once placed - the object never moves, drag/pinch are disabled
-let objScale = 1; // the actual rendered scale = baseVariantScale * distanceFactor
-let baseVariantScale = 1; // real relative size of the selected kW variant's cabinet
-let distanceFactor = 1; // purely the "walk closer/further" simulation, independent of real size
-const REFERENCE_HEIGHT_MM = 765; // real height of the 3.5/5kW case our 3D model was scanned from
-const BASE_DISTANCE_M = 2; // metres represented by distanceFactor = 1 (100%)
-const FLOOR_Y_RATIO = 0.64; // where the "floor" line sits, as a fraction of viewport height
-const FLOAT_OFFSET_PX = 90; // how high the preview floats above the floor line before dropping
-let scanTimer = null;
 
 function currentVariantHeightMm() {
   const product = state.activeProduct;
@@ -330,15 +313,18 @@ function currentVariantHeightMm() {
   return (variant && variant.heightMm) || REFERENCE_HEIGHT_MM;
 }
 
-function applyObjectTransform() {
-  objScale = baseVariantScale * distanceFactor;
-  arObject.style.left = `${objX}px`;
-  arObject.style.top = `${objY}px`;
-  arObject.style.transform = `translate(-50%, -100%) scale(${objScale})`;
+// Real relative size between kW variants (the 3D model itself is the
+// 3.5/5kW case; bigger variants use a larger real-world cabinet).
+function applyVariantScale() {
+  const s = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
+  mvViewer.setAttribute("scale", `${s} ${s} ${s}`);
 }
 
+// The "distance" here is a manual, honestly-simulated input (see the
+// Farther/Closer slider) rather than a real measured distance - a browser
+// has no access to the phone's real position, only WebXR/ARCore does.
 function currentDistanceM() {
-  return BASE_DISTANCE_M / Math.max(distanceFactor, 0.05);
+  return Number(distanceSlider.value);
 }
 
 function updateDbReadoutIfVisible() {
@@ -349,127 +335,11 @@ function updateDbReadoutIfVisible() {
   const distance = currentDistanceM();
   const spl = state.silentMode ? -Infinity : predictedSpl(lwa, distance, 1, 2);
   $("#dbNumber").textContent = state.silentMode ? "--" : spl.toFixed(1);
-  $("#dbDistance").textContent = `Current distance: ${distance.toFixed(2)}m`;
+  $("#dbDistance").textContent = `Simulated distance: ${distance.toFixed(1)}m`;
   updateHumVolume(state.silentMode ? -Infinity : spl);
 }
 
-function showScaleBadge() {
-  scaleBadge.textContent = `${Math.round(distanceFactor * 100)}%`;
-  scaleBadge.classList.add("show");
-  clearTimeout(showScaleBadge._t);
-  showScaleBadge._t = setTimeout(() => scaleBadge.classList.remove("show"), 900);
-}
-
-function resetGestureState() {
-  clearTimeout(scanTimer);
-  clearTimeout(dropObjectAtFloor._t);
-  objectPlaced = false;
-  objX = 0;
-  objY = 0;
-  distanceFactor = 1;
-  baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
-  objScale = baseVariantScale;
-  arObject.classList.remove("placed", "dropping", "floating");
-  arReticleWrap.classList.remove("show");
-  placeDropBtn.classList.remove("show");
-  distanceRow.classList.remove("show");
-  distanceSlider.value = 100;
-  scanDots.innerHTML = "";
-}
-
-function spawnScanDots() {
-  scanDots.innerHTML = "";
-  const rect = arViewport.getBoundingClientRect();
-  const count = 22;
-  for (let i = 0; i < count; i++) {
-    const dot = document.createElement("span");
-    dot.className = "scan-dot";
-    dot.style.left = `${8 + Math.random() * 84}%`;
-    dot.style.top = `${18 + Math.random() * 64}%`;
-    dot.style.animationDelay = `${Math.random() * 1.8}s`;
-    scanDots.appendChild(dot);
-  }
-}
-
-function beginScanning() {
-  clearTimeout(scanTimer);
-  arScanHint.style.display = "flex";
-  arReticleWrap.classList.remove("show");
-  placeDropBtn.classList.remove("show");
-  spawnScanDots();
-  scanTimer = setTimeout(showReadyToPlace, 2200);
-}
-
-function showReadyToPlace() {
-  arScanHint.style.display = "none";
-  scanDots.innerHTML = "";
-  const rect = arViewport.getBoundingClientRect();
-  const floorY = rect.height * FLOOR_Y_RATIO;
-
-  // Reveal the heat pump floating above the drop circle - not yet
-  // interactive (objectPlaced stays false until "Drop here" is pressed).
-  objX = rect.width / 2;
-  objY = floorY - FLOAT_OFFSET_PX;
-  baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
-  distanceFactor = 1;
-  arObject.classList.remove("dropping");
-  arObject.classList.add("placed", "floating");
-  applyObjectTransform();
-
-  arReticleWrap.style.top = `${floorY}px`;
-  arReticleWrap.classList.add("show");
-  placeDropBtn.classList.add("show");
-}
-
-function dropObjectAtFloor() {
-  const rect = arViewport.getBoundingClientRect();
-  const floorY = rect.height * FLOOR_Y_RATIO;
-  arReticleWrap.classList.remove("show");
-  placeDropBtn.classList.remove("show");
-
-  // animate down from the floating preview position to rest on the floor
-  arObject.classList.remove("floating");
-  arObject.classList.add("dropping");
-  objY = floorY;
-  applyObjectTransform();
-
-  clearTimeout(dropObjectAtFloor._t);
-  dropObjectAtFloor._t = setTimeout(() => {
-    arObject.classList.remove("dropping");
-    objectPlaced = true; // fixed in place: no drag, no pinch-to-scale from here
-    distanceSlider.value = 100;
-    distanceRow.classList.add("show");
-  }, 550);
-}
-
-distanceSlider.addEventListener("input", () => {
-  distanceFactor = Number(distanceSlider.value) / 100;
-  applyObjectTransform();
-  showScaleBadge();
-  updateDbReadoutIfVisible();
-});
-
-placeDropBtn.addEventListener("click", dropObjectAtFloor);
-
-async function startCamera() {
-  try {
-    mediaStream = await navigator.mediaDevices.getUserMedia({
-      video: { facingMode: { ideal: "environment" } },
-      audio: false
-    });
-    arVideo.srcObject = mediaStream;
-    arNoVideo.classList.remove("show");
-  } catch (err) {
-    arNoVideo.classList.add("show");
-  }
-}
-
-function stopCamera() {
-  if (mediaStream) {
-    mediaStream.getTracks().forEach((track) => track.stop());
-    mediaStream = null;
-  }
-}
+distanceSlider.addEventListener("input", updateDbReadoutIfVisible);
 
 function renderVariantPills() {
   const product = state.activeProduct;
@@ -500,11 +370,7 @@ $("#variantPills").addEventListener("click", (e) => {
   if (!btn) return;
   state.activeVariantIndex = Number(btn.dataset.index);
   renderVariantPills();
-  // reflect the real cabinet size difference between kW variants immediately
-  if (arObject.classList.contains("placed")) {
-    baseVariantScale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
-    applyObjectTransform();
-  }
+  applyVariantScale();
   updateDbReadoutIfVisible();
 });
 
@@ -515,14 +381,6 @@ $("#mountPills").addEventListener("click", (e) => {
   renderMountPills();
 });
 
-function enterFlatMode(product) {
-  resetGestureState();
-  arObjectImage.src = product.image;
-  arObjectImage.alt = product.name;
-  startCamera();
-  beginScanning();
-}
-
 function enterArScreen() {
   const product = state.activeProduct;
   $("#arProductName").textContent = product.name;
@@ -531,18 +389,20 @@ function enterArScreen() {
   state.soundConfirmed = false;
   state.silentMode = false;
   $("#silentModeToggle").checked = false;
+  distanceSlider.value = 2;
 
   $("#soundFab").style.display = product.hasNoise ? "flex" : "none";
 
   renderVariantPills();
   renderMountPills();
-  enterFlatMode(product);
+
+  mvViewer.src = product.model;
+  applyVariantScale();
 
   showScreen("ar");
 }
 
 $("#arCloseBtn").addEventListener("click", () => {
-  stopCamera();
   stopHum();
   showScreen("detail");
 });
@@ -606,54 +466,14 @@ $("#silentModeToggle").addEventListener("change", (e) => {
 $("#volumeSlider").addEventListener("input", () => updateDbReadoutIfVisible());
 
 /* ---------------------------------------------------------------------
- * Capture (screenshot of camera feed + placed object)
+ * Capture (screenshot of the 3D view)
  * -------------------------------------------------------------------*/
 $("#captureFab").addEventListener("click", () => {
-  const canvas = $("#arCanvas");
-  const rect = arViewport.getBoundingClientRect();
-  canvas.width = rect.width;
-  canvas.height = rect.height;
-  const ctx = canvas.getContext("2d");
-
-  if (mediaStream && arVideo.videoWidth) {
-    const videoAspect = arVideo.videoWidth / arVideo.videoHeight;
-    const viewAspect = rect.width / rect.height;
-    let dw = rect.width, dh = rect.height, dx = 0, dy = 0;
-    if (videoAspect > viewAspect) {
-      dh = rect.height;
-      dw = dh * videoAspect;
-      dx = (rect.width - dw) / 2;
-    } else {
-      dw = rect.width;
-      dh = dw / videoAspect;
-      dy = (rect.height - dh) / 2;
-    }
-    ctx.drawImage(arVideo, dx, dy, dw, dh);
-  } else {
-    ctx.fillStyle = "#2a2a2a";
-    ctx.fillRect(0, 0, canvas.width, canvas.height);
-  }
-
-  if (objectPlaced) {
-    const img = arObjectImage;
-    const w = arObject.getBoundingClientRect().width / objScale;
-    const h = w * (img.naturalHeight / img.naturalWidth || 1);
-    ctx.save();
-    ctx.translate(objX, objY);
-    ctx.scale(objScale, objScale);
-    ctx.drawImage(img, -w / 2, -h, w, h);
-    ctx.restore();
-  }
-
-  canvas.toBlob((blob) => {
-    if (!blob) return;
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${state.activeProduct.id}-showpoint.png`;
-    a.click();
-    URL.revokeObjectURL(url);
-  });
+  const dataUrl = mvViewer.toDataURL("image/png");
+  const a = document.createElement("a");
+  a.href = dataUrl;
+  a.download = `${state.activeProduct.id}-showpoint.png`;
+  a.click();
   showToast("Photo saved");
 });
 

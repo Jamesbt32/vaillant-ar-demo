@@ -11,6 +11,7 @@
       rel="stylesheet"
     />
     <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/3.5.0/model-viewer.min.js"></script>
   </head>
   <body>
     <div class="app-frame" id="appFrame">
@@ -110,26 +111,24 @@
       <!-- AR VIEW -->
       <section class="screen ar-screen" data-screen="ar">
         <div class="ar-viewport" id="arViewport">
-          <video id="arVideo" playsinline autoplay muted></video>
-          <div class="ar-noVideo" id="arNoVideo">Camera unavailable — using a sample room backdrop.</div>
-          <canvas id="arCanvas"></canvas>
-          <div class="ar-object" id="arObject">
-            <img id="arObjectImage" src="" alt="" draggable="false" />
-          </div>
-          <div class="scan-dots" id="scanDots"></div>
-          <div class="ar-scan-hint" id="arScanHint">
-            <div class="scan-phone-track">
-              <img class="scan-phone" src="assets/scan-phone.svg" alt="" />
-            </div>
-            <p>Move your smartphone to scan the surface</p>
-          </div>
-
-          <div class="ar-reticle-wrap" id="arReticleWrap">
-            <span class="ar-reticle"></span>
-          </div>
-          <button class="cta-btn place-drop-btn" id="placeDropBtn">
-            <span class="cube-icon" data-icon="cube"></span> Drop here
-          </button>
+          <model-viewer
+            id="mvViewer"
+            class="mv-viewer"
+            camera-controls
+            touch-action="pan-y"
+            ar
+            ar-modes="webxr scene-viewer quick-look"
+            ar-placement="floor"
+            ar-scale="fixed"
+            shadow-intensity="1"
+            exposure="1"
+          >
+            <button slot="ar-button" id="mvArButton" class="cta-btn mv-ar-btn">
+              <span class="cube-icon" data-icon="cube"></span> Place in your room
+            </button>
+            <div class="mv-progress" slot="progress-bar" id="mvProgress"><div class="mv-progress-fill"></div></div>
+          </model-viewer>
+          <p class="mv-hint" id="mvHint">Drag to rotate &middot; pinch to zoom &middot; tap "Place in your room" for real AR</p>
 
           <header class="ar-topbar">
             <button class="icon-btn light" id="arCloseBtn" data-icon="close" aria-label="Close"></button>
@@ -140,8 +139,6 @@
             <span class="bar-spacer"></span>
           </header>
 
-          <div class="scale-badge" id="scaleBadge">100%</div>
-
           <div class="db-readout" id="dbReadout">
             <div class="db-value"><span id="dbNumber">--</span><span class="db-unit">dB</span></div>
             <label class="silent-toggle">
@@ -149,16 +146,16 @@
               <input type="checkbox" id="silentModeToggle" />
               <span class="switch"></span>
             </label>
-            <p class="db-distance" id="dbDistance">Current distance: --</p>
+            <div class="distance-row">
+              <span class="distance-label">0.5m</span>
+              <input type="range" id="distanceSlider" min="0.5" max="10" step="0.1" value="2" />
+              <span class="distance-label">10m</span>
+            </div>
+            <p class="db-distance" id="dbDistance">Simulated distance: 2.0m</p>
             <button class="secondary-btn small" id="openMcsFromAr">Check MCS 020 compliance</button>
           </div>
 
           <div class="ar-bottom">
-            <div class="distance-row" id="distanceRow">
-              <span class="distance-label">Farther</span>
-              <input type="range" id="distanceSlider" min="40" max="250" value="100" />
-              <span class="distance-label">Closer</span>
-            </div>
             <div class="variant-pills" id="variantPills"></div>
             <div class="mount-pills" id="mountPills"></div>
             <div class="ar-fabs">
