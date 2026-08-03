@@ -84,7 +84,23 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
   }
 
   try {
-    modelRoot = await loadModel(modelUrl);
+    // Request the XR session FIRST, synchronously off the click's user
+    // activation. Loading the GLB is a network fetch + parse - if we awaited
+    // that before requestSession(), the tap's transient activation can
+    // expire by the time we ask for the session, and Chrome silently rejects
+    // it (no crash, no visible error) - which looked exactly like "nothing
+    // happens, it just falls back to the native AR viewer".
+    const sessionPromise = navigator.xr.requestSession("immersive-ar", {
+      requiredFeatures: ["hit-test"],
+      optionalFeatures: ["dom-overlay"],
+      domOverlay: { root: overlayRoot }
+    });
+
+    const modelPromise = loadModel(modelUrl);
+    modelPromise.catch(() => {}); // avoid an unhandled rejection if the session fails first
+
+    xrSession = await sessionPromise;
+    modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
     modelRoot.visible = false;
 
@@ -116,12 +132,6 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     reticle = createReticle();
     scene.add(reticle);
     scene.add(modelRoot);
-
-    xrSession = await navigator.xr.requestSession("immersive-ar", {
-      requiredFeatures: ["hit-test"],
-      optionalFeatures: ["dom-overlay"],
-      domOverlay: { root: overlayRoot }
-    });
 
     canvas.style.position = "fixed";
     canvas.style.inset = "0";

@@ -343,6 +343,8 @@ $("#mvArButton").addEventListener("click", async () => {
   if (supported) {
     startCustomArSession();
   } else {
+    console.warn("WebXR immersive-ar not supported here, using device AR viewer");
+    showToast("WebXR not supported here — using device AR viewer", 4000);
     mvViewer.activateAR();
   }
 });
@@ -383,8 +385,9 @@ function startCustomArSession() {
     onError: (err) => {
       xrOverlay.classList.remove("active");
       clearScanDots();
+      const reason = err && err.message ? err.message : String(err);
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);
-      showToast("Switching to your device's AR viewer...");
+      showToast(`AR error: ${reason} — using device AR viewer`, 5000);
       // isWebXRArSupported() only confirms a bare "immersive-ar" session is
       // possible - it doesn't guarantee the hit-test feature we need is also
       // available, so a real failure here still needs a fallback rather than
