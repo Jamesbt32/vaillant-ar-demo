@@ -376,6 +376,16 @@ function startCustomArSession() {
     modelUrl: product.model,
     scale,
     overlayRoot: xrOverlay,
+    onSessionStarted: ({ domOverlayGranted }) => {
+      console.log("Custom WebXR session started. dom-overlay granted:", domOverlayGranted);
+      // DEBUG: temporary, to find out if the custom overlay is structurally
+      // unable to render on this device (session works but dom-overlay was
+      // never granted) vs. some other bug. Remove once the real cause is
+      // confirmed.
+      if (!domOverlayGranted) {
+        alert("DEBUG: XR session started but dom-overlay was NOT granted - the custom phone/dots overlay cannot render, only the bare camera + model.");
+      }
+    },
     onScanning: () => {
       xrScanNote.classList.add("show");
       xrTapNote.classList.remove("show");

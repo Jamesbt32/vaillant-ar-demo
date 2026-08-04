@@ -48,7 +48,7 @@ export async function isWebXRArSupported() {
 
 let active = null; // holds the current session's teardown state, or null
 
-export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onEnd, onError }) {
+export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onEnd, onError, onSessionStarted }) {
   if (active) {
     endWebXRPlacement();
   }
@@ -90,16 +90,35 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     // expire by the time we ask for the session, and Chrome silently rejects
     // it (no crash, no visible error) - which looked exactly like "nothing
     // happens, it just falls back to the native AR viewer".
-    const sessionPromise = navigator.xr.requestSession("immersive-ar", {
-      requiredFeatures: ["hit-test"],
-      optionalFeatures: ["dom-overlay"],
-      domOverlay: { root: overlayRoot }
-    });
+    //
+    // Some devices throw NotSupportedError for the whole request when
+    // dom-overlay can't be granted, rather than just silently dropping that
+    // one optional feature as the spec intends. Retry with hit-test alone in
+    // that case - real floor-anchored placement can still work even if our
+    // HTML overlay (phone icon/scan dots/tap note) can't be drawn over it.
+    const sessionPromise = navigator.xr
+      .requestSession("immersive-ar", {
+        requiredFeatures: ["hit-test"],
+        optionalFeatures: ["dom-overlay"],
+        domOverlay: { root: overlayRoot }
+      })
+      .catch((err) => {
+        if (err && err.name === "NotSupportedError") {
+          console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test only:", err);
+          return navigator.xr.requestSession("immersive-ar", { requiredFeatures: ["hit-test"] });
+        }
+        throw err;
+      });
 
     const modelPromise = loadModel(modelUrl);
     modelPromise.catch(() => {}); // avoid an unhandled rejection if the session fails first
 
     xrSession = await sessionPromise;
+    // DEBUG: confirm whether dom-overlay actually got granted, so we know
+    // whether the custom phone-icon/scan-dots overlay can render at all on
+    // this device, or whether it structurally can't and needs a different
+    // approach (e.g. drawing the UI inside the WebGL canvas instead of HTML).
+    if (onSessionStarted) onSessionStarted({ domOverlayGranted: !!xrSession.domOverlayState });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
     modelRoot.visible = false;
