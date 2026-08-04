@@ -186,16 +186,22 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     scanDots.push(dot);
   }
 
+  // A raw hit-test pose is only accurate at the instant it's read. Freezing
+  // modelRoot's position from it once and never touching it again (the old
+  // approach) looks anchored on a device with rock-solid tracking, but if
+  // the platform ever relocalizes/corrects its understanding of where the
+  // camera is (common on a device with marginal tracking, which this one
+  // has already shown), a frozen position doesn't get that correction and
+  // the model appears to drift or shoot away. XRAnchor exists specifically
+  // to solve this: the platform keeps its pose updated to compensate for
+  // relocalization, so it's used here when available, with a graceful
+  // fallback to the old frozen-position behaviour if anchors aren't
+  // supported on this device.
+  let modelAnchor = null;
+  let selectRequested = false;
+
   function onSelect() {
-    if (placed || !reticle.visible) return;
-    modelRoot.position.setFromMatrixPosition(reticle.matrix);
-    modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
-    modelRoot.visible = true;
-    reticle.visible = false;
-    placed = true;
-    clearScanDots();
-    hud.setLines(null);
-    if (onPlaced) onPlaced();
+    selectRequested = true;
   }
 
   try {
@@ -219,7 +225,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     const sessionPromise = navigator.xr
       .requestSession("immersive-ar", {
         requiredFeatures: ["hit-test", "local"],
-        optionalFeatures: ["dom-overlay", "plane-detection"],
+        optionalFeatures: ["dom-overlay", "plane-detection", "anchors"],
         domOverlay: { root: overlayRoot }
       })
       .catch((err) => {
@@ -227,7 +233,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test + local only:", err);
           return navigator.xr.requestSession("immersive-ar", {
             requiredFeatures: ["hit-test", "local"],
-            optionalFeatures: ["plane-detection"]
+            optionalFeatures: ["plane-detection", "anchors"]
           });
         }
         throw err;
@@ -331,7 +337,8 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
         const hitResults = frame.getHitTestResults(hitTestSource);
         hitCount = hitResults.length;
         if (hitResults.length > 0) {
-          const pose = hitResults[0].getPose(referenceSpace);
+          const hit = hitResults[0];
+          const pose = hit.getPose(referenceSpace);
           reticle.visible = true;
           reticle.matrix.fromArray(pose.transform.matrix);
           modelRoot.position.setFromMatrixPosition(reticle.matrix);
@@ -343,6 +350,23 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
             hud.setLines("Tap to drop");
             if (onReadyToPlace) onReadyToPlace();
           }
+
+          if (selectRequested) {
+            selectRequested = false;
+            placed = true;
+            reticle.visible = false;
+            clearScanDots();
+            hud.setLines(null);
+            if (typeof hit.createAnchor === "function") {
+              hit.createAnchor().then(
+                (anchor) => {
+                  modelAnchor = anchor;
+                },
+                (err) => console.warn("createAnchor failed, staying with a fixed position:", err)
+              );
+            }
+            if (onPlaced) onPlaced();
+          }
         } else {
           reticle.visible = false;
           if (hasHit) {
@@ -351,6 +375,18 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
             hud.setLines("Scan where you want your heat pump");
             if (onScanning) onScanning();
           }
+        }
+      }
+
+      // Once placed, if an anchor was granted, re-sync modelRoot to its
+      // (platform-corrected) pose every frame instead of trusting the pose
+      // captured at the moment of placement.
+      if (placed && modelAnchor) {
+        const anchorPose = frame.getPose(modelAnchor.anchorSpace, referenceSpace);
+        if (anchorPose) {
+          const m = new THREE.Matrix4().fromArray(anchorPose.transform.matrix);
+          modelRoot.position.setFromMatrixPosition(m);
+          modelRoot.quaternion.setFromRotationMatrix(m);
         }
       }
 
