@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <title>Original WebXR test</title>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module" src="webxr-ar-original.js"></script>
+    <style>
+      html, body { margin: 0; height: 100%; background: #111; color: #fff; font-family: sans-serif; }
+      #startBtn {
+        position: fixed; left: 50%; top: 50%; transform: translate(-50%, -50%);
+        padding: 18px 30px; font-size: 18px; border-radius: 12px; border: none;
+        background: #ff7a1a; color: #fff; font-weight: 700;
+      }
+      #log {
+        position: fixed; left: 0; right: 0; bottom: 0; padding: 8px;
+        font-family: monospace; font-size: 12px; background: rgba(0,0,0,0.7);
+        white-space: pre-wrap; max-height: 40vh; overflow-y: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <button id="startBtn">Start original AR test</button>
+    <div id="log"></div>
+    <script>
+      const log = document.getElementById("log");
+      function print(msg) {
+        log.textContent += msg + "\n";
+        console.log(msg);
+      }
+
+      document.getElementById("startBtn").addEventListener("click", async () => {
+        print("Checking support...");
+        const supported = window.VaillantWebXROriginal && (await window.VaillantWebXROriginal.isWebXRArSupported());
+        print("isWebXRArSupported: " + supported);
+        if (!supported) {
+          print("Not supported - stopping here.");
+          return;
+        }
+        print("Starting session (this is the EXACT original first-release code, unmodified)...");
+        window.VaillantWebXROriginal.startWebXRPlacement({
+          modelUrl: "assets/models/arotherm-plus.glb",
+          scale: 1,
+          overlayRoot: document.body,
+          onScanning: () => print("onScanning"),
+          onReadyToPlace: () => print("onReadyToPlace - SURFACE FOUND!"),
+          onPlaced: () => print("onPlaced - PLACED!"),
+          onEnd: () => print("onEnd"),
+          onError: (err) => print("onError: " + (err && err.name) + ": " + (err && err.message))
+        });
+      });
+    </script>
+  </body>
+</html>
