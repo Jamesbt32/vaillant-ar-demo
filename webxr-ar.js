@@ -121,6 +121,8 @@ function getDotTexture() {
 }
 
 const MAX_SCAN_DOTS = 45;
+const UP = new THREE.Vector3(0, 1, 0);
+const ROTATE_SENSITIVITY = 0.012; // radians per pixel of horizontal drag
 
 export async function isWebXRArSupported() {
   if (!navigator.xr) return false;
@@ -285,14 +287,30 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
     reticle = createReticle();
     scene.add(reticle);
+
+    // baseQuaternion is whatever tracking/anchoring logic thinks the
+    // orientation should be; userYaw is a user-controlled spin on top of
+    // that, applied via applyOrientation() everywhere baseQuaternion changes.
+    let userYaw = 0;
+    const baseQuaternion = new THREE.Quaternion();
+    function applyOrientation() {
+      const yawQuat = new THREE.Quaternion().setFromAxisAngle(UP, userYaw);
+      modelRoot.quaternion.copy(baseQuaternion).multiply(yawQuat);
+    }
+
     // Matches the reference app: the product shows immediately as a large
     // floating preview attached to the view, even before a surface is
-    // found, rather than staying hidden until hit-test succeeds. It's
-    // reparented into world space (anchored to the reticle) the moment a
-    // real surface is detected, and back to floating if that lock is lost.
+    // found. It stays floating (smoothly following the camera, no jitter)
+    // for the entire scanning phase - only the thin reticle ring reacts to
+    // live hit-test results frame to frame. Reparenting the whole model on
+    // every hit/no-hit toggle was tried and caused it to visibly "fly"
+    // across the screen whenever hit-test flickered between found and lost
+    // (which it does often on flaky hardware) - it now only moves into
+    // world space once, at the moment of the actual tap.
     camera.add(modelRoot);
     modelRoot.position.set(0, -0.25, -2.2);
-    modelRoot.quaternion.identity();
+    baseQuaternion.identity();
+    applyOrientation();
 
     hud = createHud();
     camera.add(hud.sprite);
@@ -301,7 +319,69 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     canvas.style.position = "fixed";
     canvas.style.inset = "0";
     canvas.style.zIndex = "9998";
+    canvas.style.touchAction = "none";
     document.body.appendChild(canvas);
+
+    // Drag left/right to spin the model - works both while it's still
+    // floating and after it's been placed.
+    let dragActive = false;
+    let dragStartX = 0;
+    let yawAtDragStart = 0;
+    canvas.addEventListener("pointerdown", (e) => {
+      dragActive = true;
+      dragStartX = e.clientX;
+      yawAtDragStart = userYaw;
+    });
+    canvas.addEventListener("pointermove", (e) => {
+      if (!dragActive) return;
+      userYaw = yawAtDragStart + (e.clientX - dragStartX) * ROTATE_SENSITIVITY;
+      applyOrientation();
+    });
+    const endDrag = () => {
+      dragActive = false;
+    };
+    canvas.addEventListener("pointerup", endDrag);
+    canvas.addEventListener("pointercancel", endDrag);
+
+    // Moves modelRoot from floating-with-camera into world space, once,
+    // at the moment of placement. hitMatrix is the hit-test pose's
+    // transform.matrix (real surface found) or null (no confirmed hit at
+    // tap time - use wherever the model is currently floating instead of
+    // leaving the tap with no effect).
+    function placeModel(hitMatrix, hit) {
+      placed = true;
+      reticle.visible = false;
+      clearScanDots();
+      hud.setLines(null);
+
+      if (hitMatrix) {
+        const m = new THREE.Matrix4().fromArray(hitMatrix);
+        baseQuaternion.setFromRotationMatrix(m);
+        camera.remove(modelRoot);
+        scene.add(modelRoot);
+        modelRoot.position.setFromMatrixPosition(m);
+      } else {
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        modelRoot.getWorldPosition(worldPos);
+        modelRoot.getWorldQuaternion(worldQuat);
+        camera.remove(modelRoot);
+        scene.add(modelRoot);
+        modelRoot.position.copy(worldPos);
+        baseQuaternion.copy(worldQuat);
+      }
+      applyOrientation();
+
+      if (hit && typeof hit.createAnchor === "function") {
+        hit.createAnchor().then(
+          (anchor) => {
+            modelAnchor = anchor;
+          },
+          (err) => console.warn("createAnchor failed, staying with a fixed position:", err)
+        );
+      }
+      if (onPlaced) onPlaced();
+    }
 
     await renderer.xr.setSession(xrSession);
     referenceSpace = renderer.xr.getReferenceSpace();
@@ -346,48 +426,25 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
         if (hitResults.length > 0) {
           const hit = hitResults[0];
           const pose = hit.getPose(referenceSpace);
+          // Only the thin reticle ring tracks live hit-test results frame
+          // to frame - the big floating model deliberately does not, so
+          // noisy/flickering hit-test can't make it jump around.
           reticle.visible = true;
           reticle.matrix.fromArray(pose.transform.matrix);
           if (!hasHit) {
-            // Lock found: switch the model from floating-with-camera to
-            // anchored-in-world-space at the reticle.
-            camera.remove(modelRoot);
-            scene.add(modelRoot);
             hasHit = true;
             hud.setLines("Tap to drop");
             if (onReadyToPlace) onReadyToPlace();
           }
-          modelRoot.position.setFromMatrixPosition(reticle.matrix);
-          modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
           maybeSpawnDot(pose.transform.position);
 
           if (selectRequested) {
             selectRequested = false;
-            placed = true;
-            reticle.visible = false;
-            clearScanDots();
-            hud.setLines(null);
-            if (typeof hit.createAnchor === "function") {
-              hit.createAnchor().then(
-                (anchor) => {
-                  modelAnchor = anchor;
-                },
-                (err) => console.warn("createAnchor failed, staying with a fixed position:", err)
-              );
-            }
-            if (onPlaced) onPlaced();
+            placeModel(pose.transform.matrix, hit);
           }
         } else {
           reticle.visible = false;
           if (hasHit) {
-            // Lock lost: go back to floating with the camera rather than
-            // hiding the model - matches the reference app always showing
-            // the product during scanning, and means losing tracking
-            // doesn't make the whole preview disappear.
-            scene.remove(modelRoot);
-            camera.add(modelRoot);
-            modelRoot.position.set(0, -0.25, -2.2);
-            modelRoot.quaternion.identity();
             hasHit = false;
             hud.setLines("Scan where you want your heat pump");
             if (onScanning) onScanning();
@@ -395,41 +452,26 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
         }
       }
 
-      // A tap while still floating (no confirmed hit-test lock) would
-      // otherwise just set selectRequested and never get consumed, since
-      // the real-hit path above is the only place it was handled - leaving
-      // "tap to drop" completely non-functional on a device where hit-test
-      // never locks on. Drop it wherever it's currently floating instead;
-      // an estimated position the user can see and confirm is better than
-      // a placement flow that silently never works.
+      // A tap with no confirmed hit-test result this frame (hit-test never
+      // locked on, or the reticle just isn't over a surface right now) -
+      // drop it wherever it's currently floating instead of leaving the tap
+      // with no effect.
       if (selectRequested && !placed) {
         selectRequested = false;
-        placed = true;
-        reticle.visible = false;
-        clearScanDots();
-        hud.setLines(null);
-        if (modelRoot.parent === camera) {
-          const worldPos = new THREE.Vector3();
-          const worldQuat = new THREE.Quaternion();
-          modelRoot.getWorldPosition(worldPos);
-          modelRoot.getWorldQuaternion(worldQuat);
-          camera.remove(modelRoot);
-          scene.add(modelRoot);
-          modelRoot.position.copy(worldPos);
-          modelRoot.quaternion.copy(worldQuat);
-        }
-        if (onPlaced) onPlaced();
+        placeModel(null, null);
       }
 
       // Once placed, if an anchor was granted, re-sync modelRoot to its
       // (platform-corrected) pose every frame instead of trusting the pose
-      // captured at the moment of placement.
+      // captured at the moment of placement. Position only - baseQuaternion
+      // + applyOrientation() keeps any user drag-rotation layered on top.
       if (placed && modelAnchor) {
         const anchorPose = frame.getPose(modelAnchor.anchorSpace, referenceSpace);
         if (anchorPose) {
           const m = new THREE.Matrix4().fromArray(anchorPose.transform.matrix);
           modelRoot.position.setFromMatrixPosition(m);
-          modelRoot.quaternion.setFromRotationMatrix(m);
+          baseQuaternion.setFromRotationMatrix(m);
+          applyOrientation();
         }
       }
 
