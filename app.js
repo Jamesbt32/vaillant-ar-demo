@@ -313,7 +313,6 @@ const xrScanNote = $("#xrScanNote");
 const xrTapNote = $("#xrTapNote");
 const xrScanDots = $("#xrScanDots");
 const xrDebugLine = $("#xrDebugLine");
-const xrFloatingProduct = $("#xrFloatingProduct");
 
 function spawnScanDots() {
   xrScanDots.innerHTML = "";
@@ -374,9 +373,6 @@ function startCustomArSession() {
   xrTapNote.classList.remove("show");
   xrDebugLine.classList.add("show");
   xrDebugLine.textContent = "starting session...";
-  xrFloatingProduct.src = product.image;
-  xrFloatingProduct.alt = product.name;
-  xrFloatingProduct.classList.add("show");
   spawnScanDots();
 
   window.VaillantWebXR.startWebXRPlacement({
@@ -407,7 +403,6 @@ function startCustomArSession() {
     },
     onPlaced: () => {
       xrTapNote.classList.remove("show");
-      xrFloatingProduct.classList.remove("show");
       showToast("Placed");
     },
     onEnd: () => {
@@ -415,13 +410,11 @@ function startCustomArSession() {
       xrScanNote.classList.remove("show");
       xrTapNote.classList.remove("show");
       xrDebugLine.classList.remove("show");
-      xrFloatingProduct.classList.remove("show");
       clearScanDots();
     },
     onError: (err) => {
       xrOverlay.classList.remove("active");
       xrDebugLine.classList.remove("show");
-      xrFloatingProduct.classList.remove("show");
       clearScanDots();
       const reason = `${(err && err.name) || "Error"}: ${(err && err.message) || String(err)}`;
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);

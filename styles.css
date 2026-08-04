@@ -550,30 +550,16 @@ h1, h2, h3, p {
   left: 16px;
   pointer-events: auto;
 }
-.xr-floating-product {
-  display: none;
-  position: absolute;
-  left: 50%;
-  top: 16%;
-  transform: translateX(-50%);
-  width: 62%;
-  max-height: 34vh;
-  object-fit: contain;
-  filter: drop-shadow(0 20px 26px rgba(0, 0, 0, 0.5));
-  pointer-events: none;
-}
-.xr-floating-product.show { display: block; }
-
 .xr-scan-note {
   display: none;
   position: absolute;
   inset: 0;
   flex-direction: column;
   align-items: center;
-  justify-content: flex-end;
+  justify-content: center;
   gap: 10px;
   text-align: center;
-  padding: 0 40px 14vh;
+  padding: 0 40px;
 }
 .xr-scan-note.show { display: flex; }
 /* The moving phone is the main signal; the caption is a small supporting

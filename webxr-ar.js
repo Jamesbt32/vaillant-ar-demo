@@ -249,13 +249,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     if (onSessionStarted) onSessionStarted({ domOverlayGranted });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
-    // The floating preview shown while scanning is a flat 2D image (see
-    // app.js's #xrFloatingProduct, drawn via dom-overlay) rather than this
-    // 3D object - a 3D object parented to the camera still tilts/swings as
-    // the phone tilts/rotates, which read as "flying"/stuttering on a
-    // device with any hand shake at all. modelRoot only becomes visible
-    // once actually placed in world space (see placeModel()).
-    modelRoot.visible = false;
+    modelRoot.visible = true;
 
     const canvas = document.createElement("canvas");
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, canvas });
@@ -304,6 +298,17 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       modelRoot.quaternion.copy(baseQuaternion).multiply(yawQuat);
     }
 
+    // Matches the reference app: the product shows immediately as a large
+    // floating preview attached to the view, even before a surface is
+    // found. It stays floating (a fixed local offset, so it's screen-locked
+    // and doesn't jump around) for the entire scanning phase - only the
+    // thin reticle ring reacts to live hit-test results frame to frame. It
+    // moves into world space once, at the moment of the actual tap.
+    camera.add(modelRoot);
+    modelRoot.position.set(0, -0.25, -2.2);
+    baseQuaternion.identity();
+    applyOrientation();
+
     hud = createHud();
     camera.add(hud.sprite);
     hud.setLines("Scan where you want your heat pump");
@@ -340,8 +345,17 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       if (!dragActive) return;
       const dx = e.clientX - dragStartX;
       const dy = e.clientY - dragStartY;
-      if (Math.abs(dx) > TAP_MOVE_THRESHOLD || Math.abs(dy) > TAP_MOVE_THRESHOLD) {
+      if (!dragMoved) {
+        // Don't rotate at all until the movement is big enough to count as
+        // a deliberate drag rather than natural finger tremor during a tap
+        // - applying rotation proportionally from pixel 1 made every tap
+        // attempt visibly twitch the model.
+        if (Math.abs(dx) <= TAP_MOVE_THRESHOLD && Math.abs(dy) <= TAP_MOVE_THRESHOLD) return;
         dragMoved = true;
+        // Rebase so rotation continues smoothly from the current angle
+        // instead of jumping by the threshold distance the instant a drag
+        // is recognised.
+        yawAtDragStart = userYaw - dx * ROTATE_SENSITIVITY;
       }
       userYaw = yawAtDragStart + dx * ROTATE_SENSITIVITY;
       applyOrientation();
@@ -367,21 +381,23 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       clearScanDots();
       hud.setLines(null);
 
-      scene.add(modelRoot);
-      modelRoot.visible = true;
-
       if (hitMatrix) {
         const m = new THREE.Matrix4().fromArray(hitMatrix);
         baseQuaternion.setFromRotationMatrix(m);
+        scene.add(modelRoot); // Object3D.add() reparents automatically
         modelRoot.position.setFromMatrixPosition(m);
       } else {
-        const camPos = new THREE.Vector3();
-        const camQuat = new THREE.Quaternion();
-        camera.getWorldPosition(camPos);
-        camera.getWorldQuaternion(camQuat);
-        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
-        modelRoot.position.copy(camPos).addScaledVector(forward, 2);
-        baseQuaternion.copy(camQuat);
+        // No confirmed hit at tap time - drop it wherever it's currently
+        // floating instead of leaving the tap with no effect. Read the
+        // world transform before reparenting, since it's still expressed
+        // relative to the camera at this point.
+        const worldPos = new THREE.Vector3();
+        const worldQuat = new THREE.Quaternion();
+        modelRoot.getWorldPosition(worldPos);
+        modelRoot.getWorldQuaternion(worldQuat);
+        scene.add(modelRoot);
+        modelRoot.position.copy(worldPos);
+        baseQuaternion.copy(worldQuat);
       }
       applyOrientation();
 
