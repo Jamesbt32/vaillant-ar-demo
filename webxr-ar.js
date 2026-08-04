@@ -175,11 +175,12 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     const dot = new THREE.Sprite(material);
     dot.scale.set(0.05, 0.05, 1);
     // Small jitter so dots scatter across the area being panned over, rather
-    // than stacking at the exact center-ray hit point every time.
+    // than stacking at the exact center-ray hit point every time. Kept
+    // small (+/-6cm) so dots read as "on the surface", not floating off it.
     dot.position.set(
-      position.x + (Math.random() - 0.5) * 0.5,
+      position.x + (Math.random() - 0.5) * 0.12,
       position.y + 0.003,
-      position.z + (Math.random() - 0.5) * 0.5
+      position.z + (Math.random() - 0.5) * 0.12
     );
     scene.add(dot);
     scanDots.push(dot);
