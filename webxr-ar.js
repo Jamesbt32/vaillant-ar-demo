@@ -91,21 +91,28 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     // it (no crash, no visible error) - which looked exactly like "nothing
     // happens, it just falls back to the native AR viewer".
     //
-    // Some devices throw NotSupportedError for the whole request when
+    // 'local' is supposed to be a spec default that doesn't need to be
+    // requested explicitly, but not every device honours that - some reject
+    // Three.js's internal requestReferenceSpace('local') call with
+    // NotSupportedError unless 'local' is listed explicitly, so it's listed
+    // here for real-world compatibility.
+    //
+    // Some devices also throw NotSupportedError for the whole request when
     // dom-overlay can't be granted, rather than just silently dropping that
-    // one optional feature as the spec intends. Retry with hit-test alone in
-    // that case - real floor-anchored placement can still work even if our
-    // HTML overlay (phone icon/scan dots/tap note) can't be drawn over it.
+    // one optional feature as the spec intends. Retry with hit-test + local
+    // only in that case - real floor-anchored placement can still work even
+    // if our HTML overlay (phone icon/scan dots/tap note) can't be drawn
+    // over it.
     const sessionPromise = navigator.xr
       .requestSession("immersive-ar", {
-        requiredFeatures: ["hit-test"],
+        requiredFeatures: ["hit-test", "local"],
         optionalFeatures: ["dom-overlay"],
         domOverlay: { root: overlayRoot }
       })
       .catch((err) => {
         if (err && err.name === "NotSupportedError") {
-          console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test only:", err);
-          return navigator.xr.requestSession("immersive-ar", { requiredFeatures: ["hit-test"] });
+          console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test + local only:", err);
+          return navigator.xr.requestSession("immersive-ar", { requiredFeatures: ["hit-test", "local"] });
         }
         throw err;
       });
