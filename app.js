@@ -312,6 +312,7 @@ const xrOverlay = $("#xrOverlay");
 const xrScanNote = $("#xrScanNote");
 const xrTapNote = $("#xrTapNote");
 const xrScanDots = $("#xrScanDots");
+const xrDebugLine = $("#xrDebugLine");
 
 function spawnScanDots() {
   xrScanDots.innerHTML = "";
@@ -370,6 +371,8 @@ function startCustomArSession() {
   xrOverlay.classList.add("active");
   xrScanNote.classList.add("show");
   xrTapNote.classList.remove("show");
+  xrDebugLine.classList.add("show");
+  xrDebugLine.textContent = "starting session...";
   spawnScanDots();
 
   window.VaillantWebXR.startWebXRPlacement({
@@ -378,13 +381,15 @@ function startCustomArSession() {
     overlayRoot: xrOverlay,
     onSessionStarted: ({ domOverlayGranted }) => {
       console.log("Custom WebXR session started. dom-overlay granted:", domOverlayGranted);
-      // DEBUG: temporary, to find out if the custom overlay is structurally
-      // unable to render on this device (session works but dom-overlay was
-      // never granted) vs. some other bug. Remove once the real cause is
-      // confirmed.
-      if (!domOverlayGranted) {
-        alert("DEBUG: XR session started but dom-overlay was NOT granted - the custom phone/dots overlay cannot render, only the bare camera + model.");
-      }
+    },
+    // DEBUG: live hit-test diagnostics written straight into the overlay,
+    // since this is the one channel confirmed to render during the session
+    // regardless of whether dom-overlay itself is fully working. Remove once
+    // the real cause of "scanning but nothing happens" is confirmed.
+    onDebugFrame: ({ domOverlayGranted, hitTestSourceReady, hitTestSourceError, hitCount, placed }) => {
+      xrDebugLine.textContent =
+        `overlay:${domOverlayGranted ? "yes" : "no"} hts:${hitTestSourceReady ? "ok" : "waiting"}` +
+        `${hitTestSourceError ? " ERR:" + hitTestSourceError : ""} hits:${hitCount} placed:${placed}`;
     },
     onScanning: () => {
       xrScanNote.classList.add("show");
@@ -404,10 +409,12 @@ function startCustomArSession() {
       xrOverlay.classList.remove("active");
       xrScanNote.classList.remove("show");
       xrTapNote.classList.remove("show");
+      xrDebugLine.classList.remove("show");
       clearScanDots();
     },
     onError: (err) => {
       xrOverlay.classList.remove("active");
+      xrDebugLine.classList.remove("show");
       clearScanDots();
       const reason = `${(err && err.name) || "Error"}: ${(err && err.message) || String(err)}`;
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);

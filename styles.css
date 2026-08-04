@@ -627,6 +627,26 @@ h1, h2, h3, p {
 }
 .xr-tap-note.show { display: block; }
 
+/* DEBUG: temporary live diagnostics overlay, remove once the real cause of
+   AR placement issues is confirmed. */
+.xr-debug-line {
+  display: none;
+  position: absolute;
+  left: 8px;
+  right: 8px;
+  bottom: 8px;
+  pointer-events: none;
+  color: #0f0;
+  background: rgba(0, 0, 0, 0.75);
+  font-family: monospace;
+  font-size: 0.65rem;
+  line-height: 1.3;
+  padding: 4px 6px;
+  border-radius: 4px;
+  white-space: pre-wrap;
+}
+.xr-debug-line.show { display: block; }
+
 .ar-topbar {
   position: absolute;
   top: 0;

@@ -48,7 +48,7 @@ export async function isWebXRArSupported() {
 
 let active = null; // holds the current session's teardown state, or null
 
-export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onEnd, onError, onSessionStarted }) {
+export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onEnd, onError, onSessionStarted, onDebugFrame }) {
   if (active) {
     endWebXRPlacement();
   }
@@ -183,6 +183,12 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
     active = { xrSession };
 
+    // DEBUG: temporary diagnostics for why the reticle never appears -
+    // remove once the real cause is confirmed.
+    let hitTestSourceError = null;
+    let debugFrameCount = 0;
+    const domOverlayGranted = !!xrSession.domOverlayState;
+
     renderer.setAnimationLoop((_, frame) => {
       if (!frame) return;
       const session = frame.session;
@@ -195,11 +201,16 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           .then((source) => {
             hitTestSource = source;
           })
-          .catch(() => {});
+          .catch((err) => {
+            hitTestSourceError = err;
+            console.warn("requestHitTestSource failed:", err);
+          });
       }
 
+      let hitCount = 0;
       if (hitTestSource && !placed) {
         const hitResults = frame.getHitTestResults(hitTestSource);
+        hitCount = hitResults.length;
         if (hitResults.length > 0) {
           const pose = hitResults[0].getPose(referenceSpace);
           reticle.visible = true;
@@ -219,6 +230,17 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
             if (onScanning) onScanning();
           }
         }
+      }
+
+      debugFrameCount++;
+      if (onDebugFrame && debugFrameCount % 20 === 0) {
+        onDebugFrame({
+          domOverlayGranted,
+          hitTestSourceReady: !!hitTestSource,
+          hitTestSourceError: hitTestSourceError ? `${hitTestSourceError.name}: ${hitTestSourceError.message}` : null,
+          hitCount,
+          placed
+        });
       }
 
       renderer.render(scene, camera);
