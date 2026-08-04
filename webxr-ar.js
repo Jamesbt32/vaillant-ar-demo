@@ -249,7 +249,13 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     if (onSessionStarted) onSessionStarted({ domOverlayGranted });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
-    modelRoot.visible = true;
+    // The floating preview shown while scanning is a flat 2D image (see
+    // app.js's #xrFloatingProduct, drawn via dom-overlay) rather than this
+    // 3D object - a 3D object parented to the camera still tilts/swings as
+    // the phone tilts/rotates, which read as "flying"/stuttering on a
+    // device with any hand shake at all. modelRoot only becomes visible
+    // once actually placed in world space (see placeModel()).
+    modelRoot.visible = false;
 
     const canvas = document.createElement("canvas");
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, canvas });
@@ -297,20 +303,6 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       const yawQuat = new THREE.Quaternion().setFromAxisAngle(UP, userYaw);
       modelRoot.quaternion.copy(baseQuaternion).multiply(yawQuat);
     }
-
-    // Matches the reference app: the product shows immediately as a large
-    // floating preview attached to the view, even before a surface is
-    // found. It stays floating (smoothly following the camera, no jitter)
-    // for the entire scanning phase - only the thin reticle ring reacts to
-    // live hit-test results frame to frame. Reparenting the whole model on
-    // every hit/no-hit toggle was tried and caused it to visibly "fly"
-    // across the screen whenever hit-test flickered between found and lost
-    // (which it does often on flaky hardware) - it now only moves into
-    // world space once, at the moment of the actual tap.
-    camera.add(modelRoot);
-    modelRoot.position.set(0, -0.25, -2.2);
-    baseQuaternion.identity();
-    applyOrientation();
 
     hud = createHud();
     camera.add(hud.sprite);
@@ -364,32 +356,32 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       dragActive = false;
     });
 
-    // Moves modelRoot from floating-with-camera into world space, once,
-    // at the moment of placement. hitMatrix is the hit-test pose's
-    // transform.matrix (real surface found) or null (no confirmed hit at
-    // tap time - use wherever the model is currently floating instead of
-    // leaving the tap with no effect).
+    // Puts modelRoot into world space, once, at the moment of placement.
+    // hitMatrix is the hit-test pose's transform.matrix (real surface
+    // found) or null (no confirmed hit at tap time - drop it a couple of
+    // metres in front of wherever the camera is currently looking instead
+    // of leaving the tap with no effect).
     function placeModel(hitMatrix, hit) {
       placed = true;
       reticle.visible = false;
       clearScanDots();
       hud.setLines(null);
 
+      scene.add(modelRoot);
+      modelRoot.visible = true;
+
       if (hitMatrix) {
         const m = new THREE.Matrix4().fromArray(hitMatrix);
         baseQuaternion.setFromRotationMatrix(m);
-        camera.remove(modelRoot);
-        scene.add(modelRoot);
         modelRoot.position.setFromMatrixPosition(m);
       } else {
-        const worldPos = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        modelRoot.getWorldPosition(worldPos);
-        modelRoot.getWorldQuaternion(worldQuat);
-        camera.remove(modelRoot);
-        scene.add(modelRoot);
-        modelRoot.position.copy(worldPos);
-        baseQuaternion.copy(worldQuat);
+        const camPos = new THREE.Vector3();
+        const camQuat = new THREE.Quaternion();
+        camera.getWorldPosition(camPos);
+        camera.getWorldQuaternion(camQuat);
+        const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camQuat);
+        modelRoot.position.copy(camPos).addScaledVector(forward, 2);
+        baseQuaternion.copy(camQuat);
       }
       applyOrientation();
 

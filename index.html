@@ -20,7 +20,7 @@
         }
       }
     </script>
-    <script type="module" src="webxr-ar.js?v=8"></script>
+    <script type="module" src="webxr-ar.js?v=9"></script>
   </head>
   <body>
     <div class="app-frame" id="appFrame">
@@ -145,6 +145,11 @@
           <div class="xr-overlay" id="xrOverlay">
             <button class="icon-btn light xr-exit-btn" id="xrExitBtn" data-icon="close" aria-label="Exit AR"></button>
             <div class="scan-dots" id="xrScanDots"></div>
+            <!-- Flat 2D image, not a 3D object - stays screen-locked while
+                 scanning instead of tilting/swinging with the camera like a
+                 real 3D model parented to it would. Matches the reference
+                 app's floating preview, which stays put through big pans. -->
+            <img class="xr-floating-product" id="xrFloatingProduct" src="" alt="" />
             <div class="xr-scan-note" id="xrScanNote">
               <div class="scan-phone-track">
                 <svg class="scan-phone" viewBox="0 0 120 220" xmlns="http://www.w3.org/2000/svg">
@@ -272,6 +277,6 @@
       <div class="toast" id="toast"></div>
     </div>
 
-    <script src="app.js?v=6"></script>
+    <script src="app.js?v=9"></script>
   </body>
 </html>
