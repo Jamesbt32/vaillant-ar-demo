@@ -291,7 +291,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     // reparented into world space (anchored to the reticle) the moment a
     // real surface is detected, and back to floating if that lock is lost.
     camera.add(modelRoot);
-    modelRoot.position.set(0, -0.15, -1.1);
+    modelRoot.position.set(0, -0.25, -2.2);
     modelRoot.quaternion.identity();
 
     hud = createHud();
@@ -386,13 +386,39 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
             // doesn't make the whole preview disappear.
             scene.remove(modelRoot);
             camera.add(modelRoot);
-            modelRoot.position.set(0, -0.15, -1.1);
+            modelRoot.position.set(0, -0.25, -2.2);
             modelRoot.quaternion.identity();
             hasHit = false;
             hud.setLines("Scan where you want your heat pump");
             if (onScanning) onScanning();
           }
         }
+      }
+
+      // A tap while still floating (no confirmed hit-test lock) would
+      // otherwise just set selectRequested and never get consumed, since
+      // the real-hit path above is the only place it was handled - leaving
+      // "tap to drop" completely non-functional on a device where hit-test
+      // never locks on. Drop it wherever it's currently floating instead;
+      // an estimated position the user can see and confirm is better than
+      // a placement flow that silently never works.
+      if (selectRequested && !placed) {
+        selectRequested = false;
+        placed = true;
+        reticle.visible = false;
+        clearScanDots();
+        hud.setLines(null);
+        if (modelRoot.parent === camera) {
+          const worldPos = new THREE.Vector3();
+          const worldQuat = new THREE.Quaternion();
+          modelRoot.getWorldPosition(worldPos);
+          modelRoot.getWorldQuaternion(worldQuat);
+          camera.remove(modelRoot);
+          scene.add(modelRoot);
+          modelRoot.position.copy(worldPos);
+          modelRoot.quaternion.copy(worldQuat);
+        }
+        if (onPlaced) onPlaced();
       }
 
       // Once placed, if an anchor was granted, re-sync modelRoot to its
