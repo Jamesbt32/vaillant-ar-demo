@@ -219,13 +219,16 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     const sessionPromise = navigator.xr
       .requestSession("immersive-ar", {
         requiredFeatures: ["hit-test", "local"],
-        optionalFeatures: ["dom-overlay"],
+        optionalFeatures: ["dom-overlay", "plane-detection"],
         domOverlay: { root: overlayRoot }
       })
       .catch((err) => {
         if (err && err.name === "NotSupportedError") {
           console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test + local only:", err);
-          return navigator.xr.requestSession("immersive-ar", { requiredFeatures: ["hit-test", "local"] });
+          return navigator.xr.requestSession("immersive-ar", {
+            requiredFeatures: ["hit-test", "local"],
+            optionalFeatures: ["plane-detection"]
+          });
         }
         throw err;
       });
@@ -353,7 +356,11 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
       debugFrameCount++;
       if (debugFrameCount % 20 === 0 && !placed) {
-        const debugLine = `hts:${hitTestSource ? "ok" : "waiting"}${hitTestSourceError ? " ERR:" + hitTestSourceError.name : ""} hits:${hitCount} dots:${scanDots.length} ovl:${domOverlayGranted ? "y" : "n"}`;
+        // DEBUG: independent second signal - if frame.detectedPlanes finds
+        // planes while hit-test still returns 0, that points to a hit-test-
+        // specific bug rather than a tracking/environment problem.
+        const planesInfo = frame.detectedPlanes ? `planes:${frame.detectedPlanes.size}` : "planes:n/a";
+        const debugLine = `hts:${hitTestSource ? "ok" : "waiting"}${hitTestSourceError ? " ERR:" + hitTestSourceError.name : ""} hits:${hitCount} ${planesInfo} ovl:${domOverlayGranted ? "y" : "n"}`;
         hud.setLines([hasHit ? "Tap to drop" : "Scan where you want your heat pump", debugLine]);
         if (onDebugFrame) {
           onDebugFrame({
