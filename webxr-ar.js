@@ -135,6 +135,14 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setSize(window.innerWidth, window.innerHeight);
     renderer.xr.enabled = true;
+    // Three.js defaults to requesting the 'local-floor' reference space,
+    // which needs floor-level tracking and must be explicitly granted as a
+    // feature (unlike plain 'local', which is a spec-implicit default) -
+    // that's the exact type this device was rejecting with NotSupportedError
+    // even after 'local' was added to requiredFeatures. Use 'local' instead;
+    // hit-test poses are still accurate in it, just relative to the
+    // starting head position rather than the floor.
+    renderer.xr.setReferenceSpaceType("local");
     // Without explicit color management, a GLB loaded through raw Three.js
     // can render far too dark/wrong compared to model-viewer (which handles
     // this internally) - on an already-dark anthracite model that can mean
