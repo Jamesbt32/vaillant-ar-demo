@@ -323,25 +323,46 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     document.body.appendChild(canvas);
 
     // Drag left/right to spin the model - works both while it's still
-    // floating and after it's been placed.
+    // floating and after it's been placed. Also detects plain taps
+    // (pointerdown+pointerup with barely any movement) and treats them as
+    // "select" directly: setting `canvas.style.touchAction = "none"` above
+    // (needed so drag gestures aren't eaten by the browser's default
+    // scroll/zoom handling) can make some WebXR implementations stop
+    // auto-firing the native session "select" event for taps on that
+    // element, since touch-action:none signals "the page handles this
+    // touch itself" - so tap-to-drop can't rely on the native event alone.
     let dragActive = false;
     let dragStartX = 0;
+    let dragStartY = 0;
     let yawAtDragStart = 0;
+    let dragMoved = false;
+    const TAP_MOVE_THRESHOLD = 12; // px
     canvas.addEventListener("pointerdown", (e) => {
       dragActive = true;
+      dragMoved = false;
       dragStartX = e.clientX;
+      dragStartY = e.clientY;
       yawAtDragStart = userYaw;
     });
     canvas.addEventListener("pointermove", (e) => {
       if (!dragActive) return;
-      userYaw = yawAtDragStart + (e.clientX - dragStartX) * ROTATE_SENSITIVITY;
+      const dx = e.clientX - dragStartX;
+      const dy = e.clientY - dragStartY;
+      if (Math.abs(dx) > TAP_MOVE_THRESHOLD || Math.abs(dy) > TAP_MOVE_THRESHOLD) {
+        dragMoved = true;
+      }
+      userYaw = yawAtDragStart + dx * ROTATE_SENSITIVITY;
       applyOrientation();
     });
-    const endDrag = () => {
+    canvas.addEventListener("pointerup", (e) => {
+      if (dragActive && !dragMoved) {
+        selectRequested = true;
+      }
       dragActive = false;
-    };
-    canvas.addEventListener("pointerup", endDrag);
-    canvas.addEventListener("pointercancel", endDrag);
+    });
+    canvas.addEventListener("pointercancel", () => {
+      dragActive = false;
+    });
 
     // Moves modelRoot from floating-with-camera into world space, once,
     // at the moment of placement. hitMatrix is the hit-test pose's
