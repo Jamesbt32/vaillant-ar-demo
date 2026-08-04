@@ -4,6 +4,17 @@
 // model-viewer's own AR mode doesn't expose these two moments separately,
 // which is why this bypasses it for the live AR session specifically -
 // the on-page 3D preview still uses model-viewer as before.
+//
+// The scanning UI (status text, yellow surface dots) is drawn INSIDE the
+// WebGL scene, not as HTML dom-overlay content. dom-overlay is optional and
+// not every device grants it (confirmed: on at least one real test device,
+// none of the HTML overlay content rendered at all during the session,
+// including a plain debug line, while the underlying hit-test itself was
+// fine) - so the UI can't depend on it. Text is a canvas-texture sprite
+// parented to the camera (a screen-space HUD), and the scan dots are small
+// glowing sprites dropped in world space at hit-test points as the user
+// pans the phone around - both render on the same canvas as the camera
+// passthrough and don't need dom-overlay at all.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -37,6 +48,80 @@ function createReticle() {
   return ring;
 }
 
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+// Screen-space HUD: a text sprite parented to the camera so it stays fixed
+// in view. Needs `scene.add(camera)` so the sprite (camera's child) is
+// actually part of the render graph.
+function createHud() {
+  const canvas = document.createElement("canvas");
+  canvas.width = 640;
+  canvas.height = 200;
+  const ctx = canvas.getContext("2d");
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.colorSpace = THREE.SRGBColorSpace;
+  const material = new THREE.SpriteMaterial({ map: texture, transparent: true, depthTest: false, depthWrite: false });
+  material.toneMapped = false;
+  const sprite = new THREE.Sprite(material);
+  sprite.renderOrder = 999;
+  sprite.scale.set(0.5, 0.156, 1);
+  sprite.position.set(0, -0.2, -0.6);
+  sprite.visible = false;
+
+  function setLines(lines) {
+    const arr = (Array.isArray(lines) ? lines : [lines]).filter(Boolean);
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    if (arr.length === 0) {
+      texture.needsUpdate = true;
+      sprite.visible = false;
+      return;
+    }
+    sprite.visible = true;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+    roundRect(ctx, 8, 8, canvas.width - 16, canvas.height - 16, 24);
+    ctx.fill();
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    const lineHeight = 40;
+    const startY = canvas.height / 2 - ((arr.length - 1) * lineHeight) / 2;
+    arr.forEach((line, i) => {
+      ctx.font = i === 0 ? "bold 34px sans-serif" : "22px monospace";
+      ctx.fillStyle = i === 0 ? "#ffffff" : "#7CFC7C";
+      ctx.fillText(line, canvas.width / 2, startY + i * lineHeight);
+    });
+    texture.needsUpdate = true;
+  }
+
+  return { sprite, setLines };
+}
+
+let dotTexture = null;
+function getDotTexture() {
+  if (dotTexture) return dotTexture;
+  const size = 64;
+  const canvas = document.createElement("canvas");
+  canvas.width = canvas.height = size;
+  const ctx = canvas.getContext("2d");
+  const gradient = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  gradient.addColorStop(0, "rgba(255,210,63,1)");
+  gradient.addColorStop(0.5, "rgba(255,210,63,0.85)");
+  gradient.addColorStop(1, "rgba(255,210,63,0)");
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, size, size);
+  dotTexture = new THREE.CanvasTexture(canvas);
+  return dotTexture;
+}
+
+const MAX_SCAN_DOTS = 45;
+
 export async function isWebXRArSupported() {
   if (!navigator.xr) return false;
   try {
@@ -53,12 +138,14 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     endWebXRPlacement();
   }
 
-  let renderer, scene, camera, reticle, modelRoot, xrSession;
+  let renderer, scene, camera, reticle, modelRoot, xrSession, hud;
   let hitTestSource = null;
   let hitTestSourceRequested = false;
   let referenceSpace = null;
   let placed = false;
   let hasHit = false;
+  const scanDots = [];
+  let lastDotTime = 0;
 
   function cleanup() {
     if (renderer) {
@@ -73,6 +160,31 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     active = null;
   }
 
+  function clearScanDots() {
+    scanDots.forEach((dot) => scene.remove(dot));
+    scanDots.length = 0;
+  }
+
+  function maybeSpawnDot(position) {
+    if (scanDots.length >= MAX_SCAN_DOTS) return;
+    const now = performance.now();
+    if (now - lastDotTime < 120) return;
+    lastDotTime = now;
+    const material = new THREE.SpriteMaterial({ map: getDotTexture(), transparent: true, depthWrite: false });
+    material.toneMapped = false;
+    const dot = new THREE.Sprite(material);
+    dot.scale.set(0.05, 0.05, 1);
+    // Small jitter so dots scatter across the area being panned over, rather
+    // than stacking at the exact center-ray hit point every time.
+    dot.position.set(
+      position.x + (Math.random() - 0.5) * 0.5,
+      position.y + 0.003,
+      position.z + (Math.random() - 0.5) * 0.5
+    );
+    scene.add(dot);
+    scanDots.push(dot);
+  }
+
   function onSelect() {
     if (placed || !reticle.visible) return;
     modelRoot.position.setFromMatrixPosition(reticle.matrix);
@@ -80,6 +192,8 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     modelRoot.visible = true;
     reticle.visible = false;
     placed = true;
+    clearScanDots();
+    hud.setLines(null);
     if (onPlaced) onPlaced();
   }
 
@@ -100,9 +214,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     // Some devices also throw NotSupportedError for the whole request when
     // dom-overlay can't be granted, rather than just silently dropping that
     // one optional feature as the spec intends. Retry with hit-test + local
-    // only in that case - real floor-anchored placement can still work even
-    // if our HTML overlay (phone icon/scan dots/tap note) can't be drawn
-    // over it.
+    // only in that case.
     const sessionPromise = navigator.xr
       .requestSession("immersive-ar", {
         requiredFeatures: ["hit-test", "local"],
@@ -121,11 +233,8 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     modelPromise.catch(() => {}); // avoid an unhandled rejection if the session fails first
 
     xrSession = await sessionPromise;
-    // DEBUG: confirm whether dom-overlay actually got granted, so we know
-    // whether the custom phone-icon/scan-dots overlay can render at all on
-    // this device, or whether it structurally can't and needs a different
-    // approach (e.g. drawing the UI inside the WebGL canvas instead of HTML).
-    if (onSessionStarted) onSessionStarted({ domOverlayGranted: !!xrSession.domOverlayState });
+    const domOverlayGranted = !!xrSession.domOverlayState;
+    if (onSessionStarted) onSessionStarted({ domOverlayGranted });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
     modelRoot.visible = false;
@@ -153,6 +262,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
     scene = new THREE.Scene();
     camera = new THREE.PerspectiveCamera();
+    scene.add(camera); // needed so sprites parented to the camera actually render
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.7));
     scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.6));
@@ -166,6 +276,10 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     reticle = createReticle();
     scene.add(reticle);
     scene.add(modelRoot);
+
+    hud = createHud();
+    camera.add(hud.sprite);
+    hud.setLines("Scan where you want your heat pump");
 
     canvas.style.position = "fixed";
     canvas.style.inset = "0";
@@ -184,10 +298,11 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     active = { xrSession };
 
     // DEBUG: temporary diagnostics for why the reticle never appears -
-    // remove once the real cause is confirmed.
+    // remove once the real cause is confirmed. Shown both via onDebugFrame
+    // (dom-overlay debug line, works only on devices that grant it) and as
+    // a second line on the in-scene HUD sprite (works everywhere).
     let hitTestSourceError = null;
     let debugFrameCount = 0;
-    const domOverlayGranted = !!xrSession.domOverlayState;
 
     renderer.setAnimationLoop((_, frame) => {
       if (!frame) return;
@@ -218,8 +333,10 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           modelRoot.position.setFromMatrixPosition(reticle.matrix);
           modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
           modelRoot.visible = true;
+          maybeSpawnDot(pose.transform.position);
           if (!hasHit) {
             hasHit = true;
+            hud.setLines("Tap to drop");
             if (onReadyToPlace) onReadyToPlace();
           }
         } else {
@@ -227,20 +344,25 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           if (hasHit) {
             hasHit = false;
             modelRoot.visible = false;
+            hud.setLines("Scan where you want your heat pump");
             if (onScanning) onScanning();
           }
         }
       }
 
       debugFrameCount++;
-      if (onDebugFrame && debugFrameCount % 20 === 0) {
-        onDebugFrame({
-          domOverlayGranted,
-          hitTestSourceReady: !!hitTestSource,
-          hitTestSourceError: hitTestSourceError ? `${hitTestSourceError.name}: ${hitTestSourceError.message}` : null,
-          hitCount,
-          placed
-        });
+      if (debugFrameCount % 20 === 0 && !placed) {
+        const debugLine = `hts:${hitTestSource ? "ok" : "waiting"}${hitTestSourceError ? " ERR:" + hitTestSourceError.name : ""} hits:${hitCount} dots:${scanDots.length} ovl:${domOverlayGranted ? "y" : "n"}`;
+        hud.setLines([hasHit ? "Tap to drop" : "Scan where you want your heat pump", debugLine]);
+        if (onDebugFrame) {
+          onDebugFrame({
+            domOverlayGranted,
+            hitTestSourceReady: !!hitTestSource,
+            hitTestSourceError: hitTestSourceError ? `${hitTestSourceError.name}: ${hitTestSourceError.message}` : null,
+            hitCount,
+            placed
+          });
+        }
       }
 
       renderer.render(scene, camera);
