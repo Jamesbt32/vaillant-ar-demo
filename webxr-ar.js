@@ -247,7 +247,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     if (onSessionStarted) onSessionStarted({ domOverlayGranted });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
-    modelRoot.visible = false;
+    modelRoot.visible = true;
 
     const canvas = document.createElement("canvas");
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, canvas });
@@ -285,7 +285,14 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
     reticle = createReticle();
     scene.add(reticle);
-    scene.add(modelRoot);
+    // Matches the reference app: the product shows immediately as a large
+    // floating preview attached to the view, even before a surface is
+    // found, rather than staying hidden until hit-test succeeds. It's
+    // reparented into world space (anchored to the reticle) the moment a
+    // real surface is detected, and back to floating if that lock is lost.
+    camera.add(modelRoot);
+    modelRoot.position.set(0, -0.15, -1.1);
+    modelRoot.quaternion.identity();
 
     hud = createHud();
     camera.add(hud.sprite);
@@ -341,15 +348,18 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           const pose = hit.getPose(referenceSpace);
           reticle.visible = true;
           reticle.matrix.fromArray(pose.transform.matrix);
-          modelRoot.position.setFromMatrixPosition(reticle.matrix);
-          modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
-          modelRoot.visible = true;
-          maybeSpawnDot(pose.transform.position);
           if (!hasHit) {
+            // Lock found: switch the model from floating-with-camera to
+            // anchored-in-world-space at the reticle.
+            camera.remove(modelRoot);
+            scene.add(modelRoot);
             hasHit = true;
             hud.setLines("Tap to drop");
             if (onReadyToPlace) onReadyToPlace();
           }
+          modelRoot.position.setFromMatrixPosition(reticle.matrix);
+          modelRoot.quaternion.setFromRotationMatrix(reticle.matrix);
+          maybeSpawnDot(pose.transform.position);
 
           if (selectRequested) {
             selectRequested = false;
@@ -370,8 +380,15 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
         } else {
           reticle.visible = false;
           if (hasHit) {
+            // Lock lost: go back to floating with the camera rather than
+            // hiding the model - matches the reference app always showing
+            // the product during scanning, and means losing tracking
+            // doesn't make the whole preview disappear.
+            scene.remove(modelRoot);
+            camera.add(modelRoot);
+            modelRoot.position.set(0, -0.15, -1.1);
+            modelRoot.quaternion.identity();
             hasHit = false;
-            modelRoot.visible = false;
             hud.setLines("Scan where you want your heat pump");
             if (onScanning) onScanning();
           }
