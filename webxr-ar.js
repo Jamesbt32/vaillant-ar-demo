@@ -15,6 +15,15 @@
 // glowing sprites dropped in world space at hit-test points as the user
 // pans the phone around - both render on the same canvas as the camera
 // passthrough and don't need dom-overlay at all.
+//
+// Placement itself is the standard AR pattern: a reticle tracks the live
+// hit-test result while scanning, and a tap drops the model directly at
+// that surface point. There is deliberately no "floating preview attached
+// to the camera" stage before that - reparenting a camera-attached object
+// into world space every frame (or worse, on tap) is what caused this
+// model's earlier "flying"/jitter bugs, since any camera relocalization
+// between frames shows up as the object visibly jumping. Not having that
+// stage at all removes the whole bug class instead of chasing it further.
 import * as THREE from "three";
 import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 
@@ -123,6 +132,7 @@ function getDotTexture() {
 const MAX_SCAN_DOTS = 45;
 const UP = new THREE.Vector3(0, 1, 0);
 const ROTATE_SENSITIVITY = 0.012; // radians per pixel of horizontal drag
+const DISTANCE_UPDATE_INTERVAL_MS = 100;
 
 export async function isWebXRArSupported() {
   if (!navigator.xr) return false;
@@ -135,7 +145,7 @@ export async function isWebXRArSupported() {
 
 let active = null; // holds the current session's teardown state, or null
 
-export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onEnd, onError, onSessionStarted, onDebugFrame }) {
+export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScanning, onReadyToPlace, onPlaced, onDistance, onEnd, onError, onSessionStarted }) {
   if (active) {
     endWebXRPlacement();
   }
@@ -148,6 +158,9 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
   let hasHit = false;
   const scanDots = [];
   let lastDotTime = 0;
+  let lastDistanceTime = 0;
+  const camWorldPos = new THREE.Vector3();
+  const modelWorldPos = new THREE.Vector3();
 
   function cleanup() {
     if (renderer) {
@@ -227,7 +240,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     const sessionPromise = navigator.xr
       .requestSession("immersive-ar", {
         requiredFeatures: ["hit-test", "local"],
-        optionalFeatures: ["dom-overlay", "plane-detection", "anchors"],
+        optionalFeatures: ["dom-overlay", "anchors"],
         domOverlay: { root: overlayRoot }
       })
       .catch((err) => {
@@ -235,7 +248,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           console.warn("immersive-ar with dom-overlay rejected, retrying with hit-test + local only:", err);
           return navigator.xr.requestSession("immersive-ar", {
             requiredFeatures: ["hit-test", "local"],
-            optionalFeatures: ["plane-detection", "anchors"]
+            optionalFeatures: ["anchors"]
           });
         }
         throw err;
@@ -249,7 +262,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     if (onSessionStarted) onSessionStarted({ domOverlayGranted });
     modelRoot = await modelPromise;
     modelRoot.scale.set(scale, scale, scale);
-    modelRoot.visible = true;
+    modelRoot.visible = false; // hidden until placed - no floating preview stage
 
     const canvas = document.createElement("canvas");
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, canvas });
@@ -298,16 +311,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       modelRoot.quaternion.copy(baseQuaternion).multiply(yawQuat);
     }
 
-    // Matches the reference app: the product shows immediately as a large
-    // floating preview attached to the view, even before a surface is
-    // found. It stays floating (a fixed local offset, so it's screen-locked
-    // and doesn't jump around) for the entire scanning phase - only the
-    // thin reticle ring reacts to live hit-test results frame to frame. It
-    // moves into world space once, at the moment of the actual tap.
-    camera.add(modelRoot);
-    modelRoot.position.set(0, -0.25, -2.2);
-    baseQuaternion.identity();
-    applyOrientation();
+    scene.add(modelRoot);
 
     hud = createHud();
     camera.add(hud.sprite);
@@ -319,15 +323,15 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
     canvas.style.touchAction = "none";
     document.body.appendChild(canvas);
 
-    // Drag left/right to spin the model - works both while it's still
-    // floating and after it's been placed. Also detects plain taps
-    // (pointerdown+pointerup with barely any movement) and treats them as
-    // "select" directly: setting `canvas.style.touchAction = "none"` above
-    // (needed so drag gestures aren't eaten by the browser's default
-    // scroll/zoom handling) can make some WebXR implementations stop
-    // auto-firing the native session "select" event for taps on that
-    // element, since touch-action:none signals "the page handles this
-    // touch itself" - so tap-to-drop can't rely on the native event alone.
+    // Drag left/right to spin the model once it's placed. Also detects
+    // plain taps (pointerdown+pointerup with barely any movement) and
+    // treats them as "select" directly: setting
+    // `canvas.style.touchAction = "none"` above (needed so drag gestures
+    // aren't eaten by the browser's default scroll/zoom handling) can make
+    // some WebXR implementations stop auto-firing the native session
+    // "select" event for taps on that element, since touch-action:none
+    // signals "the page handles this touch itself" - so tap-to-drop can't
+    // rely on the native event alone.
     let dragActive = false;
     let dragStartX = 0;
     let dragStartY = 0;
@@ -370,35 +374,20 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
       dragActive = false;
     });
 
-    // Puts modelRoot into world space, once, at the moment of placement.
-    // hitMatrix is the hit-test pose's transform.matrix (real surface
-    // found) or null (no confirmed hit at tap time - drop it a couple of
-    // metres in front of wherever the camera is currently looking instead
-    // of leaving the tap with no effect).
+    // Drops modelRoot at the given hit-test pose, once, at the moment of
+    // placement. Only ever called with a confirmed hit - a tap while no
+    // surface has been found yet is simply ignored (the HUD is already
+    // telling the user to keep scanning).
     function placeModel(hitMatrix, hit) {
       placed = true;
       reticle.visible = false;
       clearScanDots();
       hud.setLines(null);
 
-      if (hitMatrix) {
-        const m = new THREE.Matrix4().fromArray(hitMatrix);
-        baseQuaternion.setFromRotationMatrix(m);
-        scene.add(modelRoot); // Object3D.add() reparents automatically
-        modelRoot.position.setFromMatrixPosition(m);
-      } else {
-        // No confirmed hit at tap time - drop it wherever it's currently
-        // floating instead of leaving the tap with no effect. Read the
-        // world transform before reparenting, since it's still expressed
-        // relative to the camera at this point.
-        const worldPos = new THREE.Vector3();
-        const worldQuat = new THREE.Quaternion();
-        modelRoot.getWorldPosition(worldPos);
-        modelRoot.getWorldQuaternion(worldQuat);
-        scene.add(modelRoot);
-        modelRoot.position.copy(worldPos);
-        baseQuaternion.copy(worldQuat);
-      }
+      const m = new THREE.Matrix4().fromArray(hitMatrix);
+      baseQuaternion.setFromRotationMatrix(m);
+      modelRoot.position.setFromMatrixPosition(m);
+      modelRoot.visible = true;
       applyOrientation();
 
       if (hit && typeof hit.createAnchor === "function") {
@@ -423,13 +412,6 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
 
     active = { xrSession };
 
-    // DEBUG: temporary diagnostics for why the reticle never appears -
-    // remove once the real cause is confirmed. Shown both via onDebugFrame
-    // (dom-overlay debug line, works only on devices that grant it) and as
-    // a second line on the in-scene HUD sprite (works everywhere).
-    let hitTestSourceError = null;
-    let debugFrameCount = 0;
-
     renderer.setAnimationLoop((_, frame) => {
       if (!frame) return;
       const session = frame.session;
@@ -443,21 +425,15 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
             hitTestSource = source;
           })
           .catch((err) => {
-            hitTestSourceError = err;
             console.warn("requestHitTestSource failed:", err);
           });
       }
 
-      let hitCount = 0;
       if (hitTestSource && !placed) {
         const hitResults = frame.getHitTestResults(hitTestSource);
-        hitCount = hitResults.length;
         if (hitResults.length > 0) {
           const hit = hitResults[0];
           const pose = hit.getPose(referenceSpace);
-          // Only the thin reticle ring tracks live hit-test results frame
-          // to frame - the big floating model deliberately does not, so
-          // noisy/flickering hit-test can't make it jump around.
           reticle.visible = true;
           reticle.matrix.fromArray(pose.transform.matrix);
           if (!hasHit) {
@@ -473,6 +449,7 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
           }
         } else {
           reticle.visible = false;
+          selectRequested = false; // a tap with no surface under it is a no-op, not a queued placement
           if (hasHit) {
             hasHit = false;
             hud.setLines("Scan where you want your heat pump");
@@ -481,45 +458,29 @@ export async function startWebXRPlacement({ modelUrl, scale, overlayRoot, onScan
         }
       }
 
-      // A tap with no confirmed hit-test result this frame (hit-test never
-      // locked on, or the reticle just isn't over a surface right now) -
-      // drop it wherever it's currently floating instead of leaving the tap
-      // with no effect.
-      if (selectRequested && !placed) {
-        selectRequested = false;
-        placeModel(null, null);
-      }
-
       // Once placed, if an anchor was granted, re-sync modelRoot to its
       // (platform-corrected) pose every frame instead of trusting the pose
       // captured at the moment of placement. Position only - baseQuaternion
       // + applyOrientation() keeps any user drag-rotation layered on top.
-      if (placed && modelAnchor) {
-        const anchorPose = frame.getPose(modelAnchor.anchorSpace, referenceSpace);
-        if (anchorPose) {
-          const m = new THREE.Matrix4().fromArray(anchorPose.transform.matrix);
-          modelRoot.position.setFromMatrixPosition(m);
-          baseQuaternion.setFromRotationMatrix(m);
-          applyOrientation();
+      if (placed) {
+        if (modelAnchor) {
+          const anchorPose = frame.getPose(modelAnchor.anchorSpace, referenceSpace);
+          if (anchorPose) {
+            const m = new THREE.Matrix4().fromArray(anchorPose.transform.matrix);
+            modelRoot.position.setFromMatrixPosition(m);
+            baseQuaternion.setFromRotationMatrix(m);
+            applyOrientation();
+          }
         }
-      }
 
-      debugFrameCount++;
-      if (debugFrameCount % 20 === 0 && !placed) {
-        // DEBUG: independent second signal - if frame.detectedPlanes finds
-        // planes while hit-test still returns 0, that points to a hit-test-
-        // specific bug rather than a tracking/environment problem.
-        const planesInfo = frame.detectedPlanes ? `planes:${frame.detectedPlanes.size}` : "planes:n/a";
-        const debugLine = `hts:${hitTestSource ? "ok" : "waiting"}${hitTestSourceError ? " ERR:" + hitTestSourceError.name : ""} hits:${hitCount} ${planesInfo} ovl:${domOverlayGranted ? "y" : "n"}`;
-        hud.setLines([hasHit ? "Tap to drop" : "Scan where you want your heat pump", debugLine]);
-        if (onDebugFrame) {
-          onDebugFrame({
-            domOverlayGranted,
-            hitTestSourceReady: !!hitTestSource,
-            hitTestSourceError: hitTestSourceError ? `${hitTestSourceError.name}: ${hitTestSourceError.message}` : null,
-            hitCount,
-            placed
-          });
+        if (onDistance) {
+          const now = performance.now();
+          if (now - lastDistanceTime >= DISTANCE_UPDATE_INTERVAL_MS) {
+            lastDistanceTime = now;
+            camera.getWorldPosition(camWorldPos);
+            modelRoot.getWorldPosition(modelWorldPos);
+            onDistance(camWorldPos.distanceTo(modelWorldPos));
+          }
         }
       }
 

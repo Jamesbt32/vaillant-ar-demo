@@ -312,7 +312,8 @@ const xrOverlay = $("#xrOverlay");
 const xrScanNote = $("#xrScanNote");
 const xrTapNote = $("#xrTapNote");
 const xrScanDots = $("#xrScanDots");
-const xrDebugLine = $("#xrDebugLine");
+const xrSoundPill = $("#xrSoundPill");
+const xrSoundDb = $("#xrSoundDb");
 
 function spawnScanDots() {
   xrScanDots.innerHTML = "";
@@ -345,22 +346,7 @@ $("#mvArButton").addEventListener("click", async () => {
     startCustomArSession();
   } else {
     console.warn("WebXR immersive-ar not supported here, using device AR viewer");
-    // DEBUG: a toast can be swept away instantly when the device switches to
-    // Scene Viewer/Quick Look, so this uses a blocking alert instead - it's
-    // temporary instrumentation to find out why the custom overlay never
-    // engages. Remove once the real cause is confirmed.
-    alert("DEBUG: WebXR not supported here - using device AR viewer");
     mvViewer.activateAR();
-  }
-});
-
-// DEBUG: model-viewer's own AR handoff (Scene Viewer/Quick Look) status,
-// so we can see if/why a *second* tap of "Place in your room" silently
-// fails to relaunch it. Remove once the real cause is confirmed.
-mvViewer.addEventListener("ar-status", (e) => {
-  console.log("model-viewer ar-status:", e.detail && e.detail.status);
-  if (e.detail && e.detail.status === "failed") {
-    alert("DEBUG: model-viewer AR status = failed");
   }
 });
 
@@ -368,29 +354,17 @@ function startCustomArSession() {
   const product = state.activeProduct;
   const scale = currentVariantHeightMm() / REFERENCE_HEIGHT_MM;
 
+  arMuted = false;
+  xrSoundPill.classList.remove("show", "muted");
   xrOverlay.classList.add("active");
   xrScanNote.classList.add("show");
   xrTapNote.classList.remove("show");
-  xrDebugLine.classList.add("show");
-  xrDebugLine.textContent = "starting session...";
   spawnScanDots();
 
   window.VaillantWebXR.startWebXRPlacement({
     modelUrl: product.model,
     scale,
     overlayRoot: xrOverlay,
-    onSessionStarted: ({ domOverlayGranted }) => {
-      console.log("Custom WebXR session started. dom-overlay granted:", domOverlayGranted);
-    },
-    // DEBUG: live hit-test diagnostics written straight into the overlay,
-    // since this is the one channel confirmed to render during the session
-    // regardless of whether dom-overlay itself is fully working. Remove once
-    // the real cause of "scanning but nothing happens" is confirmed.
-    onDebugFrame: ({ domOverlayGranted, hitTestSourceReady, hitTestSourceError, hitCount, placed }) => {
-      xrDebugLine.textContent =
-        `overlay:${domOverlayGranted ? "yes" : "no"} hts:${hitTestSourceReady ? "ok" : "waiting"}` +
-        `${hitTestSourceError ? " ERR:" + hitTestSourceError : ""} hits:${hitCount} placed:${placed}`;
-    },
     onScanning: () => {
       xrScanNote.classList.add("show");
       xrTapNote.classList.remove("show");
@@ -404,24 +378,27 @@ function startCustomArSession() {
     onPlaced: () => {
       xrTapNote.classList.remove("show");
       showToast("Placed");
+      // The heat pump's sound starts automatically the moment it's placed,
+      // its volume driven by the real measured distance to it (see
+      // onDistance below) - this is a real user gesture (the placement tap),
+      // so resuming the audio context here is allowed.
+      ensureAudioGraph();
+      if (audioCtx.state === "suspended") audioCtx.resume();
+      xrSoundPill.classList.add("show");
     },
+    onDistance: (distanceM) => updateArSoundFromDistance(distanceM),
     onEnd: () => {
       xrOverlay.classList.remove("active");
       xrScanNote.classList.remove("show");
       xrTapNote.classList.remove("show");
-      xrDebugLine.classList.remove("show");
+      xrSoundPill.classList.remove("show");
       clearScanDots();
+      stopHum();
     },
     onError: (err) => {
       xrOverlay.classList.remove("active");
-      xrDebugLine.classList.remove("show");
       clearScanDots();
-      const reason = `${(err && err.name) || "Error"}: ${(err && err.message) || String(err)}`;
       console.warn("Custom WebXR placement failed, falling back to native AR:", err);
-      // DEBUG: blocking alert instead of a toast, since a toast can be swept
-      // away instantly when the device switches to Scene Viewer. Remove once
-      // the real cause is confirmed.
-      alert(`DEBUG: custom WebXR failed - ${reason}`);
       // isWebXRArSupported() only confirms a bare "immersive-ar" session is
       // possible - it doesn't guarantee the hit-test feature we need is also
       // available, so a real failure here still needs a fallback rather than
@@ -433,6 +410,15 @@ function startCustomArSession() {
 
 $("#xrExitBtn").addEventListener("click", () => {
   if (window.VaillantWebXR) window.VaillantWebXR.endWebXRPlacement();
+});
+
+// Muted independently of the inline preview's silent-mode toggle/volume
+// slider, since those controls live outside the dom-overlay root and can't
+// be reached during a real immersive-ar session (see xr-overlay markup).
+let arMuted = false;
+xrSoundPill.addEventListener("click", () => {
+  arMuted = !arMuted;
+  xrSoundPill.classList.toggle("muted", arMuted);
 });
 
 function currentVariantHeightMm() {
@@ -580,6 +566,27 @@ function updateHumVolume(splDb) {
 
 function stopHum() {
   if (humGain) humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+}
+
+// Drives the hum from the real distance measured between the phone and the
+// placed model during a live WebXR AR session, rather than the manual
+// "simulated distance" slider used by the inline preview (that slider only
+// exists because a plain page has no access to real position - our own
+// WebXR session does).
+const AR_MASTER_VOLUME = 0.7;
+function updateArSoundFromDistance(distanceM) {
+  const product = state.activeProduct;
+  const variant = product.variants[state.activeVariantIndex];
+  const lwa = variant ? variant.lwa : 50;
+  const spl = predictedSpl(lwa, distanceM, 1, 2);
+  xrSoundDb.textContent = arMuted ? "Muted" : `${spl.toFixed(0)} dB`;
+  if (!humGain) return;
+  if (arMuted) {
+    humGain.gain.setTargetAtTime(0, audioCtx.currentTime, 0.05);
+    return;
+  }
+  const normalized = Math.min(1, Math.max(0, (spl - 25) / 40));
+  humGain.gain.setTargetAtTime(normalized * AR_MASTER_VOLUME * 0.22, audioCtx.currentTime, 0.08);
 }
 
 $("#soundFab").addEventListener("click", () => {

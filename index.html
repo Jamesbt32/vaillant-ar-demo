@@ -20,7 +20,7 @@
         }
       }
     </script>
-    <script type="module" src="webxr-ar.js?v=10"></script>
+    <script type="module" src="webxr-ar.js?v=11"></script>
   </head>
   <body>
     <div class="app-frame" id="appFrame">
@@ -144,6 +144,16 @@
                dom-overlay feature only while a real AR session is active. -->
           <div class="xr-overlay" id="xrOverlay">
             <button class="icon-btn light xr-exit-btn" id="xrExitBtn" data-icon="close" aria-label="Exit AR"></button>
+            <!-- Sound is only reachable in here (inside the dom-overlay root)
+                 because during a real immersive-ar session the browser only
+                 composites this element's subtree - nothing else on the page
+                 is shown. Volume plays automatically, driven by the real
+                 measured distance to the placed model; this is just a mute
+                 toggle plus a live readout of what's being simulated. -->
+            <button class="xr-sound-pill" id="xrSoundPill" aria-label="Mute heat pump sound">
+              <span class="xr-sound-icon" data-icon="ear"></span>
+              <span id="xrSoundDb">-- dB</span>
+            </button>
             <div class="scan-dots" id="xrScanDots"></div>
             <div class="xr-scan-note" id="xrScanNote">
               <div class="scan-phone-track">
@@ -159,9 +169,6 @@
               <p>Scan where you want your heat pump</p>
             </div>
             <div class="xr-tap-note" id="xrTapNote">Tap to drop</div>
-            <!-- DEBUG: temporary live diagnostics, remove once the real
-                 cause of AR placement issues is confirmed. -->
-            <p class="xr-debug-line" id="xrDebugLine"></p>
           </div>
 
           <header class="ar-topbar">
@@ -272,6 +279,6 @@
       <div class="toast" id="toast"></div>
     </div>
 
-    <script src="app.js?v=10"></script>
+    <script src="app.js?v=11"></script>
   </body>
 </html>
