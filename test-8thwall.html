@@ -1,0 +1,237 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, user-scalable=no" />
+    <title>8th Wall placement prototype</title>
+
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+    <script type="module">
+      // 8th Wall's pipeline-module API (see webxr-ar-8thwall.js) predates ES
+      // modules and expects a global THREE with GLTFLoader attached, same
+      // pattern as 8th Wall's own reference examples.
+      import * as THREE from "three";
+      import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+      window.THREE = { ...THREE };
+      window.THREE.GLTFLoader = GLTFLoader;
+      window.dispatchEvent(new Event("threeready"));
+    </script>
+
+    <!-- Self-hosted (no account/appKey) 8th Wall engine binary, per
+         https://8thwall.org - the hosted apps.8thwall.com/xrweb platform
+         this used to require was retired Feb 2026. -->
+    <script
+      src="https://cdn.jsdelivr.net/npm/@8thwall/engine-binary@1/dist/xr.js"
+      async
+      crossorigin="anonymous"
+      data-preload-chunks="slam"
+    ></script>
+
+    <style>
+      html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #fff; font-family: sans-serif; }
+      #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+
+      #startOverlay {
+        position: fixed; inset: 0; display: flex; flex-direction: column;
+        align-items: center; justify-content: center; gap: 14px;
+        background: rgba(5, 16, 12, 0.92); z-index: 20; padding: 24px; text-align: center;
+      }
+      #startBtn {
+        padding: 16px 32px; font-size: 17px; border-radius: 999px; border: none;
+        background: #ff7a1a; color: #fff; font-weight: 700;
+      }
+      #startBtn:disabled { background: #6b6b6b; }
+      .hint { color: #aab; font-size: 13px; max-width: 320px; line-height: 1.5; }
+
+      #controls {
+        position: fixed; left: 0; right: 0; bottom: 0; z-index: 10;
+        display: none; flex-direction: column; gap: 8px; padding: 12px;
+        background: linear-gradient(0deg, rgba(0,0,0,0.75), transparent);
+      }
+      #controls.show { display: flex; }
+      .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+      button.pill {
+        border: 1px solid rgba(255,255,255,0.5); background: rgba(0,0,0,0.4); color: #fff;
+        border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 600;
+      }
+      button.pill.active { background: #fff; color: #10202a; }
+      button.pill.accent { background: #ff7a1a; border-color: #ff7a1a; }
+
+      #aimPanel {
+        display: none; flex-direction: column; gap: 10px;
+        background: rgba(15, 25, 22, 0.92); border-radius: 16px; padding: 14px; margin-top: 6px;
+      }
+      #aimPanel.show { display: flex; }
+      #aimPanel label { font-size: 12px; color: #9fb; }
+      #aimPanel input[type="range"] { width: 100%; }
+
+      #log {
+        position: fixed; left: 0; right: 0; top: 0; z-index: 15;
+        padding: 6px 8px; font-family: monospace; font-size: 11px;
+        background: rgba(0,0,0,0.65); white-space: pre-wrap; max-height: 26vh; overflow-y: auto;
+      }
+      #markerList { font-size: 12px; color: #dfe; max-height: 18vh; overflow-y: auto; }
+      #markerList div { padding: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.12); }
+    </style>
+  </head>
+  <body>
+    <canvas id="camerafeed"></canvas>
+
+    <div id="log"></div>
+
+    <div id="startOverlay">
+      <h2 style="margin:0">8th Wall placement prototype</h2>
+      <p class="hint">
+        Tests 8th Wall's World Tracking as a rock-solid-placement alternative to the raw WebXR
+        hit-test used in the main app, plus a manual door/window "is this a habitable room?"
+        marking flow for MCS 020. Loading the AR engine...
+      </p>
+      <button id="startBtn" disabled>Loading engine...</button>
+    </div>
+
+    <div id="controls">
+      <div class="row">
+        <button class="pill" id="markBtn">Mark door / window</button>
+        <button class="pill" id="floorDownBtn">Floor −</button>
+        <button class="pill" id="floorUpBtn">Floor +</button>
+      </div>
+      <p class="hint" style="margin:0">Two-finger tap anywhere to recenter tracking if it drifts.</p>
+
+      <div id="aimPanel">
+        <label>Distance to door/window: <span id="aimDistanceLabel">4.0</span>m</label>
+        <input type="range" id="aimDistance" min="1" max="15" step="0.1" value="4" />
+        <div class="row">
+          <button class="pill active" id="kindDoor">Door</button>
+          <button class="pill" id="kindWindow">Window</button>
+        </div>
+        <div class="row">
+          <button class="pill active" id="habitableYes">Habitable room</button>
+          <button class="pill" id="habitableNo">Not habitable</button>
+        </div>
+        <div class="row">
+          <button class="pill accent" id="confirmMark">Confirm</button>
+          <button class="pill" id="cancelMark">Cancel</button>
+        </div>
+      </div>
+
+      <div id="markerList"></div>
+    </div>
+
+    <script src="webxr-ar-8thwall.js"></script>
+    <script>
+      const logEl = document.getElementById("log");
+      function print(msg) {
+        logEl.textContent += msg + "\n";
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      const startBtn = document.getElementById("startBtn");
+      const startOverlay = document.getElementById("startOverlay");
+      const controls = document.getElementById("controls");
+      const aimPanel = document.getElementById("aimPanel");
+      const markerList = document.getElementById("markerList");
+
+      let threeReady = false;
+      let engineReady = false;
+      function maybeEnableStart() {
+        if (threeReady && engineReady) {
+          startBtn.disabled = false;
+          startBtn.textContent = "Start AR";
+        }
+      }
+      window.addEventListener("threeready", () => {
+        threeReady = true;
+        maybeEnableStart();
+      });
+      window.addEventListener("xrloaded", () => {
+        engineReady = true;
+        print("8th Wall engine loaded.");
+        maybeEnableStart();
+      });
+
+      startBtn.addEventListener("click", () => {
+        startOverlay.style.display = "none";
+        controls.classList.add("show");
+        print("Starting World Tracking...");
+        window.VaillantEightWall.start({
+          canvasId: "camerafeed",
+          onLog: print,
+          onPlaced: () => print("Heat pump placed - tap the floor again to move it."),
+          onAiming: () => aimPanel.classList.add("show"),
+          onMarkerConfirmed: (record) => {
+            aimPanel.classList.remove("show");
+            const row = document.createElement("div");
+            const dbText =
+              record.predictedDb != null
+                ? `${record.predictedDb.toFixed(1)}dB(A) vs ${record.thresholdDb} limit - ${
+                    record.predictedDb <= record.thresholdDb ? "PASS" : "FAIL"
+                  }`
+                : "not habitable, excluded from MCS 020";
+            row.textContent = `${record.kind === "door" ? "Door" : "Window"} · ${record.distanceFromPumpM.toFixed(1)}m · ${dbText}`;
+            markerList.prepend(row);
+          }
+        });
+      });
+
+      document.getElementById("markBtn").addEventListener("click", () => {
+        window.VaillantEightWall.enterMarkMode();
+      });
+      document.getElementById("floorDownBtn").addEventListener("click", () => window.VaillantEightWall.adjustFloorHeight(-0.05));
+      document.getElementById("floorUpBtn").addEventListener("click", () => window.VaillantEightWall.adjustFloorHeight(0.05));
+
+      const aimDistance = document.getElementById("aimDistance");
+      const aimDistanceLabel = document.getElementById("aimDistanceLabel");
+      aimDistance.addEventListener("input", () => {
+        aimDistanceLabel.textContent = Number(aimDistance.value).toFixed(1);
+        window.VaillantEightWall.setAimingDistance(Number(aimDistance.value));
+      });
+
+      const kindDoor = document.getElementById("kindDoor");
+      const kindWindow = document.getElementById("kindWindow");
+      kindDoor.addEventListener("click", () => {
+        kindDoor.classList.add("active");
+        kindWindow.classList.remove("active");
+        window.VaillantEightWall.setAimingKind("door");
+      });
+      kindWindow.addEventListener("click", () => {
+        kindWindow.classList.add("active");
+        kindDoor.classList.remove("active");
+        window.VaillantEightWall.setAimingKind("window");
+      });
+
+      const habitableYes = document.getElementById("habitableYes");
+      const habitableNo = document.getElementById("habitableNo");
+      habitableYes.addEventListener("click", () => {
+        habitableYes.classList.add("active");
+        habitableNo.classList.remove("active");
+        window.VaillantEightWall.setAimingHabitable(true);
+      });
+      habitableNo.addEventListener("click", () => {
+        habitableNo.classList.add("active");
+        habitableYes.classList.remove("active");
+        window.VaillantEightWall.setAimingHabitable(false);
+      });
+
+      document.getElementById("confirmMark").addEventListener("click", () => {
+        window.VaillantEightWall.confirmAiming();
+        aimDistance.value = 4;
+        aimDistanceLabel.textContent = "4.0";
+        kindDoor.classList.add("active");
+        kindWindow.classList.remove("active");
+        habitableYes.classList.add("active");
+        habitableNo.classList.remove("active");
+      });
+      document.getElementById("cancelMark").addEventListener("click", () => {
+        window.VaillantEightWall.cancelAiming();
+        aimPanel.classList.remove("show");
+      });
+    </script>
+  </body>
+</html>
