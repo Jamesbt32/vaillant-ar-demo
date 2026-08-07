@@ -47,7 +47,18 @@
 
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #111; color: #fff; font-family: sans-serif; }
-      #camerafeed { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; }
+      /* No position/width/height here on purpose. XRExtras.FullWindowCanvas
+         (see the script tag in <head>) takes ownership of this element's
+         layout itself - on start it moves the canvas to the end of <body>
+         and sets its own width:100%/height:100%/display:block via inline
+         style, sized against actual window + camera-video dimensions. It
+         never sets `position`, relying on plain document flow instead (body
+         itself is already height:100% - see html,body rule above). Fighting
+         that with our own position:fixed/inset:0 here is what caused the
+         camera feed to stay pinned at a small default size instead of
+         filling the screen: two different resize systems overriding each
+         other while neither had a consistent picture of the actual size. */
+      #camerafeed { touch-action: none; }
 
       #startOverlay {
         position: fixed; inset: 0; display: flex; flex-direction: column;
@@ -137,7 +148,7 @@
       <div id="markerList"></div>
     </div>
 
-    <script src="webxr-ar-8thwall.js?v=4"></script>
+    <script src="webxr-ar-8thwall.js?v=5"></script>
     <script>
       const logEl = document.getElementById("log");
       function print(msg) {
