@@ -51,9 +51,17 @@ let placed = false;
 let markMode = false;
 let aiming = null; // { origin: Vector3, direction: Vector3, distanceM, mesh, labelSprite }
 const markers = [];
-const raycaster = new THREE.Raycaster();
-const tapNdc = new THREE.Vector2();
-const loader = new THREE.GLTFLoader();
+// Not constructed until start() runs (i.e. after the user taps the Start
+// button), even though this script tag loads well before that. These need
+// THREE to already be the real three.js module, but the inline module
+// script in test-8thwall.html that sets window.THREE is deferred (all
+// `type="module"` scripts are, per spec) and so actually executes AFTER
+// this plain, non-deferred script tag further down the page - building
+// these at load time hit `THREE is not defined` immediately, before
+// anything in this file ever ran, with no on-screen trace of the crash.
+let raycaster;
+let tapNdc;
+let loader;
 
 let hooks = {};
 
@@ -306,6 +314,9 @@ function pipelineModule() {
 
 function start({ canvasId, onLog, onPlaced, onAiming, onMarkerConfirmed }) {
   hooks = { onLog, onPlaced, onAiming, onMarkerConfirmed };
+  raycaster = new THREE.Raycaster();
+  tapNdc = new THREE.Vector2();
+  loader = new THREE.GLTFLoader();
 
   if (navigator.permissions && navigator.permissions.query) {
     navigator.permissions

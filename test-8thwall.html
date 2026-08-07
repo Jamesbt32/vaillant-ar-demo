@@ -124,13 +124,25 @@
       <div id="markerList"></div>
     </div>
 
-    <script src="webxr-ar-8thwall.js?v=2"></script>
+    <script src="webxr-ar-8thwall.js?v=3"></script>
     <script>
       const logEl = document.getElementById("log");
       function print(msg) {
         logEl.textContent += msg + "\n";
         logEl.scrollTop = logEl.scrollHeight;
       }
+
+      // Without this, any uncaught error (like the THREE-not-defined-yet
+      // load-order bug this page hit) fails completely silently on a phone
+      // with no attached devtools - it just looks like "stuck, nothing
+      // happens." This is the only way to see it without a cable.
+      window.addEventListener("error", (e) => {
+        print("JS ERROR: " + e.message + " (" + (e.filename || "").split("/").pop() + ":" + e.lineno + ")");
+      });
+      window.addEventListener("unhandledrejection", (e) => {
+        const reason = e.reason && e.reason.message ? e.reason.message : e.reason;
+        print("UNHANDLED PROMISE REJECTION: " + reason);
+      });
 
       const startBtn = document.getElementById("startBtn");
       const startOverlay = document.getElementById("startOverlay");
