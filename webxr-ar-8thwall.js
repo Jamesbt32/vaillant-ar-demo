@@ -285,6 +285,19 @@ function pipelineModule() {
       );
     },
 
+    // The engine's own hook for camera acquisition progress - without this,
+    // a camera permission prompt that's denied, ignored, or silently
+    // pre-blocked (Chrome doesn't re-prompt once a site's camera permission
+    // is set to "block" - it just never asks again) looks identical to
+    // "stuck loading" from the page's point of view, since onStart above
+    // only ever fires once a camera stream actually exists.
+    onCameraStatusChange: ({ status }) => {
+      log("Camera status: " + status);
+      if (status === "failed") {
+        log("Camera access failed. Check Chrome's site settings (tap the lock/info icon in the address bar) for this page's Camera permission - if it's set to Block, reset it there and reload.");
+      }
+    },
+
     onException: (error) => {
       log("XR8 exception: " + (error && error.message ? error.message : error));
     }
@@ -293,6 +306,14 @@ function pipelineModule() {
 
 function start({ canvasId, onLog, onPlaced, onAiming, onMarkerConfirmed }) {
   hooks = { onLog, onPlaced, onAiming, onMarkerConfirmed };
+
+  if (navigator.permissions && navigator.permissions.query) {
+    navigator.permissions
+      .query({ name: "camera" })
+      .then((status) => log("Camera permission (before starting): " + status.state))
+      .catch(() => {}); // not every browser supports querying the camera permission - non-fatal if so
+  }
+
   XR8.addCameraPipelineModules([
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
@@ -300,6 +321,16 @@ function start({ canvasId, onLog, onPlaced, onAiming, onMarkerConfirmed }) {
     pipelineModule()
   ]);
   XR8.run({ canvas: document.getElementById(canvasId) });
+
+  setTimeout(() => {
+    if (!placed && !scene) {
+      log(
+        "Still waiting 8s after starting - world tracking never reported a camera status at all. " +
+          "This points to the engine itself failing silently rather than a permission prompt (that would " +
+          "have logged a Camera status line above). Try reloading, or check the browser console."
+      );
+    }
+  }, 8000);
 }
 
 function enterMarkMode() {
