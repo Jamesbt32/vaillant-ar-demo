@@ -29,7 +29,7 @@
 // standard (which only cares about the nearest habitable room of a
 // neighbouring dwelling).
 
-/* globals XR8, THREE */
+/* globals XR8, XRExtras, THREE */
 
 const FLOOR_HEIGHT_M = 1.3; // estimated phone-in-hand height; nudge with adjustFloorHeight() if the model doesn't sit on the real floor
 const MODEL_URL = "assets/models/arotherm-plus.glb";
@@ -243,15 +243,15 @@ function pipelineModule() {
       renderer.toneMapping = THREE.ACESFilmicToneMapping;
       renderer.toneMappingExposure = 1.3;
 
-      // XR8.Threejs.pipelineModule() doesn't auto-fit the canvas to the
-      // window the way XRExtras.FullWindowCanvas would (deliberately not
-      // pulled in here - see the file header). Only the pixel size is set
-      // manually; camera.aspect/projectionMatrix is intentionally left
-      // alone since XR8.XrController owns the projection matrix (it's
-      // calibrated to the real device camera's intrinsics for correct AR
-      // alignment) and overwriting it would desync the model from the
-      // camera feed.
-      renderer.setSize(window.innerWidth, window.innerHeight, false);
+      // Canvas/camera-feed sizing to fill the window is handled by
+      // XRExtras.FullWindowCanvas.pipelineModule() (added in start() below)
+      // - a hand-rolled renderer.setSize() here was tried first and did NOT
+      // work: it resizes three.js's own render target, but not the
+      // engine's separate internal camera-texture viewport that
+      // XR8.GlTextureRenderer draws the passthrough video into, so the
+      // camera feed stayed a small fixed-size square in the middle of the
+      // screen. FullWindowCanvas is 8th Wall's own module for this exact
+      // problem, used in all of their reference examples.
 
       scene.add(new THREE.AmbientLight(0xffffff, 0.7));
       scene.add(new THREE.HemisphereLight(0xffffff, 0x666666, 1.6));
@@ -329,6 +329,7 @@ function start({ canvasId, onLog, onPlaced, onAiming, onMarkerConfirmed }) {
     XR8.GlTextureRenderer.pipelineModule(),
     XR8.Threejs.pipelineModule(),
     XR8.XrController.pipelineModule(),
+    XRExtras.FullWindowCanvas.pipelineModule(),
     pipelineModule()
   ]);
   XR8.run({ canvas: document.getElementById(canvasId) });
