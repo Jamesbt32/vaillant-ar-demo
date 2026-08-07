@@ -45,12 +45,24 @@ function predictedSpl(lwa, distanceM, q) {
   return lwa + 10 * Math.log10(q / (4 * Math.PI * d * d));
 }
 
+const ROTATE_SENSITIVITY = 0.012; // radians per pixel of horizontal drag
+const TAP_MOVE_THRESHOLD = 12; // px - below this, a touch is a tap, not a drag
+
 let scene, camera, renderer, groundPlane, canvasEl;
 let heatPump = null;
+let reticle = null; // circle on the floor showing where a tap will drop the heat pump
+let dropLabel = null; // "Tap to drop" sprite, floats just above the reticle
 let placed = false;
+let userYaw = 0; // left/right spin only - the ground is always flat here, so no pitch/roll needed
 let markMode = false;
 let aiming = null; // { origin: Vector3, direction: Vector3, distanceM, mesh, labelSprite }
 const markers = [];
+
+let dragActive = false;
+let dragStartX = 0;
+let dragStartY = 0;
+let yawAtDragStart = 0;
+let dragMoved = false;
 // Not constructed until start() runs (i.e. after the user taps the Start
 // button), even though this script tag loads well before that. These need
 // THREE to already be the real three.js module, but the inline module
@@ -107,12 +119,59 @@ function makeLabelSprite(lines, accentColor) {
   return sprite;
 }
 
-function placeHeatPumpAt(x, z) {
-  if (!heatPump) return;
-  heatPump.position.set(x, 0, z);
-  heatPump.visible = true;
+function createReticle() {
+  const ring = new THREE.Mesh(
+    new THREE.RingGeometry(0.16, 0.21, 32),
+    new THREE.MeshBasicMaterial({ color: 0xffffff, side: THREE.DoubleSide, transparent: true, opacity: 0.9 })
+  );
+  ring.rotateX(-Math.PI / 2);
+  return ring;
+}
+
+// Raycasts from the CENTER of the screen (not wherever the finger happens to
+// be) against the ground plane - this is the standard mobile-AR placement
+// pattern (aim the phone, a reticle follows where you're looking; tap
+// anywhere just confirms whatever the reticle is currently over). Runs every
+// frame before placement so the heat pump and its floor circle both track
+// live as the phone moves, instead of only appearing once at tap time.
+function updateLivePreview() {
+  if (placed || markMode || !groundPlane) return;
+  tapNdc.set(0, 0);
+  raycaster.setFromCamera(tapNdc, camera);
+  const hits = raycaster.intersectObject(groundPlane);
+  if (hits.length === 0) return;
+  const p = hits[0].point;
+
+  if (reticle) {
+    reticle.position.set(p.x, 0.01, p.z);
+    reticle.visible = true;
+  }
+  if (dropLabel) {
+    dropLabel.position.set(p.x, 0.22, p.z);
+    dropLabel.visible = true;
+  }
+  if (heatPump) {
+    heatPump.position.set(p.x, 0, p.z);
+    heatPump.rotation.y = userYaw;
+    heatPump.visible = true;
+  }
+}
+
+// Freezes the heat pump wherever the live-follow reticle currently is -
+// there's nothing else to compute here, since the model has already been
+// tracking that same ground point every frame up to this point.
+function confirmPlacement() {
+  if (!heatPump || !heatPump.visible) return;
   placed = true;
+  if (reticle) reticle.visible = false;
+  if (dropLabel) dropLabel.visible = false;
+  log("Heat pump placed. Drag left/right to turn it, or tap Mark door/window.");
   if (hooks.onPlaced) hooks.onPlaced();
+}
+
+function applyYaw() {
+  if (!heatPump) return;
+  heatPump.rotation.y = userYaw;
 }
 
 function screenToRay(clientX, clientY) {
@@ -201,28 +260,60 @@ function confirmAiming() {
   if (hooks.onMarkerConfirmed) hooks.onMarkerConfirmed(record);
 }
 
-function touchHandler(e) {
+// Distinguishes a tap (place/mark) from a drag (turn the heat pump left or
+// right) the same way the production webxr-ar.js does: track movement
+// across touchstart -> touchmove -> touchend, and only decide which one it
+// was once the finger lifts, rather than reacting instantly on touchstart.
+function onTouchStart(e) {
   if (e.touches.length === 2) {
     XR8.XrController.recenter();
     log("Recentered tracking.");
     return;
   }
   if (e.touches.length !== 1) return;
+  dragActive = true;
+  dragMoved = false;
+  dragStartX = e.touches[0].clientX;
+  dragStartY = e.touches[0].clientY;
+  yawAtDragStart = userYaw;
+}
 
-  const { clientX, clientY } = e.touches[0];
+function onTouchMove(e) {
+  e.preventDefault();
+  if (!dragActive || e.touches.length !== 1) return;
+  const dx = e.touches[0].clientX - dragStartX;
+  const dy = e.touches[0].clientY - dragStartY;
+  if (!dragMoved) {
+    if (Math.abs(dx) <= TAP_MOVE_THRESHOLD && Math.abs(dy) <= TAP_MOVE_THRESHOLD) return;
+    dragMoved = true;
+    // Rebase so rotation continues smoothly from the current angle instead
+    // of jumping by the threshold distance the instant a drag is recognised.
+    yawAtDragStart = userYaw - dx * ROTATE_SENSITIVITY;
+  }
+  // Left/right only - turning the unit to face a different way along the
+  // wall is the only rotation that makes sense for a floor-standing heat
+  // pump, so drag is deliberately mapped to yaw regardless of vertical
+  // finger movement (dy is tracked only for the tap-vs-drag decision above).
+  userYaw = yawAtDragStart + dx * ROTATE_SENSITIVITY;
+  applyYaw();
+}
+
+function onTouchEnd(e) {
+  dragActive = false;
+  if (dragMoved) return; // was a drag, not a tap - nothing more to do
+
+  const touch = e.changedTouches[0];
+  if (!touch) return;
 
   if (markMode) {
-    if (!aiming) startAiming(clientX, clientY);
+    if (!aiming) startAiming(touch.clientX, touch.clientY);
     return;
   }
 
-  // Not in mark mode: tap the ground to place/reposition the heat pump.
-  const ray = screenToRay(clientX, clientY);
-  raycaster.set(ray.origin, ray.direction);
-  const hits = raycaster.intersectObject(groundPlane);
-  if (hits.length > 0) {
-    placeHeatPumpAt(hits[0].point.x, hits[0].point.z);
-  }
+  // Not in mark mode: confirm placement wherever the live reticle currently
+  // is - NOT at the tap's own screen position, matching how a real AR
+  // placement reticle works (you aim with the phone, tap just confirms).
+  if (!placed) confirmPlacement();
 }
 
 function pipelineModule() {
@@ -269,28 +360,39 @@ function pipelineModule() {
       camera.position.set(0, FLOOR_HEIGHT_M, 0);
       XR8.XrController.updateCameraProjectionMatrix({ origin: camera.position, facing: camera.quaternion });
 
-      canvas.addEventListener("touchstart", touchHandler, true);
-      canvas.addEventListener(
-        "touchmove",
-        (e) => {
-          e.preventDefault();
-        },
-        { passive: false }
-      );
+      reticle = createReticle();
+      reticle.visible = false;
+      scene.add(reticle);
+      dropLabel = makeLabelSprite(["Tap to drop"], "#2fc6a6");
+      dropLabel.visible = false;
+      scene.add(dropLabel);
 
-      log("World tracking started. Tap the floor to place the heat pump.");
+      canvas.addEventListener("touchstart", onTouchStart, true);
+      canvas.addEventListener("touchmove", onTouchMove, { passive: false });
+      canvas.addEventListener("touchend", onTouchEnd, true);
+      canvas.addEventListener("touchcancel", () => {
+        dragActive = false;
+      });
+
+      log("World tracking started. Point the phone at the floor.");
 
       loader.load(
         MODEL_URL,
         (gltf) => {
           heatPump = gltf.scene;
-          heatPump.visible = false;
+          heatPump.visible = false; // updateLivePreview() reveals it once the first ground raycast lands
           scene.add(heatPump);
-          log("Model loaded - tap the floor where you want it.");
+          log("Model loaded - it'll follow where you point the phone until you tap to drop it.");
         },
         undefined,
         (err) => log("Model failed to load: " + err.message)
       );
+    },
+
+    // Runs every processed frame - drives the live floor-following reticle
+    // and heat pump position before placement (see updateLivePreview).
+    onUpdate: () => {
+      updateLivePreview();
     },
 
     // The engine's own hook for camera acquisition progress - without this,
@@ -347,6 +449,13 @@ function start({ canvasId, onLog, onPlaced, onAiming, onMarkerConfirmed }) {
 
 function enterMarkMode() {
   markMode = true;
+  // updateLivePreview() stops touching these while markMode is true, but
+  // won't hide them itself - do it here so the placement reticle doesn't
+  // sit frozen on screen, overlapping the door/window aiming marker.
+  if (!placed) {
+    if (reticle) reticle.visible = false;
+    if (dropLabel) dropLabel.visible = false;
+  }
   log("Mark mode: tap the door or window you want to tag.");
 }
 
